@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-TW" style="background:#ffffff;color-scheme:light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>對單系統 — 登入</title>
+<style>
+:root {
+  --cyan:  #1a7bbf;
+  --amber: #c07000;
+  --red:   #cc2222;
+  --txt:   #111111;
+  --txt2:  #444444;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent }
+html, body { overflow-x:hidden; font-size:16px }
+body {
+  background:#ffffff !important; color:#111111 !important;
+  font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;
+  color-scheme:light;
+  min-height:100vh;
+  display:flex; align-items:center; justify-content:center;
+  padding:20px;
+}
+
+.login-card {
+  width:100%; max-width:360px;
+  background:#ffffff;
+  border:1px solid rgba(0,0,0,.10);
+  border-radius:16px;
+  padding:36px 28px 28px;
+  box-shadow:0 8px 32px rgba(0,0,0,.08);
+}
+
+.logo {
+  text-align:center; margin-bottom:6px;
+  font-size:2.2rem;
+}
+.title {
+  text-align:center;
+  font-size:1.15rem; font-weight:900; letter-spacing:3px;
+  color:var(--cyan);
+  margin-bottom:2px;
+}
+.subtitle {
+  text-align:center;
+  font-size:.78rem; color:var(--txt2);
+  margin-bottom:28px;
+}
+
+.field { margin-bottom:16px }
+.field label {
+  display:block; font-size:.72rem; font-weight:700;
+  color:var(--txt2); letter-spacing:1px; margin-bottom:6px;
+}
+.field input {
+  width:100%; padding:12px 14px;
+  border:1.5px solid rgba(0,0,0,.15); border-radius:8px;
+  font-size:.95rem; font-family:inherit; color:var(--txt);
+  outline:none; transition:border-color .2s;
+  background:#ffffff;
+}
+.field input:focus { border-color:var(--cyan) }
+
+.login-btn {
+  width:100%; padding:13px;
+  background:var(--cyan); color:#ffffff;
+  border:none; border-radius:8px;
+  font-size:.95rem; font-weight:800; letter-spacing:1px;
+  cursor:pointer; font-family:inherit;
+  margin-top:8px;
+  transition:opacity .15s;
+}
+.login-btn:active { opacity:.85 }
+
+.error-msg {
+  color:var(--red); font-size:.78rem; font-weight:600;
+  text-align:center; margin-top:12px; min-height:18px;
+}
+
+.remember-row {
+  display:flex; align-items:center; gap:8px;
+  font-size:.78rem; color:var(--txt2);
+  margin-bottom:8px; margin-top:-4px;
+}
+.remember-row input { width:16px; height:16px }
+
+.footer-note {
+  text-align:center; font-size:.68rem; color:#999999;
+  margin-top:24px; line-height:1.6;
+}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="logo">⚓</div>
+  <div class="title">對單系統</div>
+  <div class="subtitle">請登入以繼續使用</div>
+
+  <div class="field">
+    <label>帳號</label>
+    <input type="text" id="username" placeholder="請輸入帳號" autocomplete="username" autocapitalize="none">
+  </div>
+
+  <div class="field">
+    <label>密碼</label>
+    <input type="password" id="password" placeholder="請輸入密碼" autocomplete="current-password">
+  </div>
+
+  <div class="remember-row">
+    <input type="checkbox" id="remember" checked>
+    <label for="remember">記住我（下次自動登入）</label>
+  </div>
+
+  <button class="login-btn" onclick="doLogin()">登入</button>
+
+  <div class="error-msg" id="error-msg"></div>
+
+  <div class="footer-note">
+    對單系統 · 內部使用
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════
+   簡易帳密驗證（暫時寫死，之後接資料庫）
+   ══════════════════════════════ */
+const VALID_USERS = [
+  { username: 'admin', password: 'admin123' },
+  { username: 'user',  password: 'user123'  },
+];
+
+// 若已記住登入狀態，直接跳轉
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('ctr-auth');
+  if (saved) {
+    try {
+      const auth = JSON.parse(saved);
+      if (auth && auth.username) {
+        redirectToApp();
+      }
+    } catch(e) {}
+  }
+  // enter 鍵送出
+  document.getElementById('password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('username').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+});
+
+function doLogin() {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value;
+  const remember = document.getElementById('remember').checked;
+  const errEl = document.getElementById('error-msg');
+
+  if (!u || !p) {
+    errEl.textContent = '請輸入帳號和密碼';
+    return;
+  }
+
+  const match = VALID_USERS.find(x => x.username === u && x.password === p);
+  if (!match) {
+    errEl.textContent = '帳號或密碼錯誤';
+    return;
+  }
+
+  errEl.textContent = '';
+
+  if (remember) {
+    localStorage.setItem('ctr-auth', JSON.stringify({ username: u, loginAt: new Date().toISOString() }));
+  } else {
+    sessionStorage.setItem('ctr-auth', JSON.stringify({ username: u, loginAt: new Date().toISOString() }));
+  }
+
+  redirectToApp();
+}
+
+function redirectToApp() {
+  window.location.href = 'container-checklist.html';
+}
+</script>
+</body>
+</html>
