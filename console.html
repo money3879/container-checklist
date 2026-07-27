@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-TW" style="background:#ffffff;color-scheme:light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>首頁</title>
+<style>
+:root {
+  --cyan:  #1a7bbf;
+  --amber: #c07000;
+  --red:   #cc2222;
+  --txt:   #111111;
+  --txt2:  #444444;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent }
+html, body { overflow-x:hidden; font-size:16px }
+body {
+  background:#ffffff !important; color:#111111 !important;
+  font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;
+  color-scheme:light;
+  min-height:100vh;
+}
+
+/* ── TOP BAR ── */
+#top {
+  background:#f2f4f6; border-bottom:2px solid var(--cyan);
+  padding:14px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.top-left { display:flex; flex-direction:column; gap:2px }
+.app-title { font-size:1rem; font-weight:900; letter-spacing:3px; color:#1a5a8a }
+.user-info { font-size:.72rem; color:var(--txt2) }
+.logout-btn {
+  border:1px solid rgba(204,34,34,.3); border-radius:6px;
+  padding:8px 13px; font-size:.8rem; font-weight:700;
+  cursor:pointer; font-family:inherit; background:#ffffff; color:#cc2222;
+}
+
+/* ── MAIN ── */
+main { padding:20px 16px }
+.section-title {
+  font-size:.8rem; font-weight:700; color:var(--txt2);
+  letter-spacing:1.5px; margin-bottom:12px;
+}
+
+.app-grid {
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+}
+@media (min-width:480px) {
+  .app-grid { grid-template-columns:1fr 1fr; }
+}
+
+.app-card {
+  background:#ffffff; border:1px solid rgba(0,0,0,.12); border-radius:14px;
+  padding:20px 18px; cursor:pointer;
+  transition:box-shadow .15s, transform .1s;
+  display:flex; flex-direction:column; gap:8px;
+}
+.app-card:active { box-shadow:0 4px 16px rgba(0,0,0,.10); transform:scale(0.98) }
+
+.app-icon { font-size:2rem; display:flex; align-items:center }
+.app-name { font-size:1rem; font-weight:800; color:var(--txt) }
+.app-desc { font-size:.78rem; color:var(--txt2); line-height:1.5 }
+
+.app-card.disabled {
+  opacity:.45; cursor:default;
+}
+.app-card.disabled:active { transform:none; box-shadow:none }
+.coming-soon {
+  display:inline-block; font-size:.65rem; font-weight:700;
+  background:#f0f0f0; color:#888888;
+  padding:2px 8px; border-radius:10px; align-self:flex-start;
+}
+
+.empty-note {
+  text-align:center; color:#999999; font-size:.8rem;
+  padding:40px 20px; line-height:1.8;
+}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div class="top-left">
+    <span class="app-title">⚓ 首頁</span>
+    <span class="user-info" id="user-info">—</span>
+  </div>
+  <button class="logout-btn" onclick="logout()">🚪 登出</button>
+</div>
+
+<main>
+  <div class="section-title">可使用的系統</div>
+  <div class="app-grid">
+
+    <div class="app-card" onclick="location.href='container-checklist.html'">
+      <div class="app-icon">
+        <svg width="44" height="44" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <!-- 頂面 -->
+          <polygon points="10,20 42,10 54,16 22,26" fill="#5aa8d8" stroke="#0d4d75" stroke-width="1"/>
+          <!-- 正面 -->
+          <polygon points="10,20 22,26 22,50 10,44" fill="#1a7bbf" stroke="#0d4d75" stroke-width="1"/>
+          <!-- 正面橫向波浪板紋路（精確平行於上下邊） -->
+          <line x1="10" y1="24.8" x2="22" y2="30.8" stroke="#0d4d75" stroke-width="0.6" opacity="0.5"/>
+          <line x1="10" y1="29.6" x2="22" y2="35.6" stroke="#0d4d75" stroke-width="0.6" opacity="0.5"/>
+          <line x1="10" y1="34.4" x2="22" y2="40.4" stroke="#0d4d75" stroke-width="0.6" opacity="0.5"/>
+          <line x1="10" y1="39.2" x2="22" y2="45.2" stroke="#0d4d75" stroke-width="0.6" opacity="0.5"/>
+          <!-- 正面雙開門中線 -->
+          <line x1="16" y1="23" x2="16" y2="47" stroke="#0d4d75" stroke-width="0.8" opacity="0.6"/>
+          <!-- 側面 -->
+          <polygon points="22,26 54,16 54,40 22,50" fill="#2b8fcf" stroke="#0d4d75" stroke-width="1"/>
+          <!-- 側面直向波浪板紋路（精確平行於左右邊） -->
+          <line x1="30" y1="23.5" x2="30" y2="47.5" stroke="#0d4d75" stroke-width="0.6" opacity="0.4"/>
+          <line x1="38" y1="21" x2="38" y2="45" stroke="#0d4d75" stroke-width="0.6" opacity="0.4"/>
+          <line x1="46" y1="18.5" x2="46" y2="42.5" stroke="#0d4d75" stroke-width="0.6" opacity="0.4"/>
+        </svg>
+      </div>
+      <div class="app-name">貨櫃對單系統</div>
+      <div class="app-desc">國際櫃號、海關封條、大陸封條對單，支援 Excel 匯入與跨裝置同步</div>
+    </div>
+
+    <div class="app-card disabled">
+      <div class="app-icon">🧩</div>
+      <div class="app-name">敬請期待</div>
+      <div class="app-desc">未來會陸續加入更多實用的內部工具</div>
+      <span class="coming-soon">開發中</span>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const SB_URL = 'https://ruziacdggdfyvlbcjnan.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1emlhY2RnZ2RmeXZsYmNqbmFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzE1OTEsImV4cCI6MjEwMDQ0NzU5MX0.3P7SzY2EfKtUTcuaBB0fMY0FOIdp_X3KmkfRnL8wuSg';
+
+// 登入保護：未登入就導回登入頁
+(function checkAuth() {
+  const saved = localStorage.getItem('ctr-auth') || sessionStorage.getItem('ctr-auth');
+  if (!saved) {
+    window.location.replace('index.html');
+    return;
+  }
+  try {
+    const auth = JSON.parse(saved);
+    if (!auth || !auth.username) throw new Error('invalid');
+    window._currentUser = auth.username;
+    document.getElementById('user-info').textContent = `使用者：${auth.displayName || auth.username}`;
+  } catch(e) {
+    localStorage.removeItem('ctr-auth');
+    sessionStorage.removeItem('ctr-auth');
+    window.location.replace('index.html');
+  }
+})();
+
+function logout() {
+  localStorage.removeItem('ctr-auth');
+  sessionStorage.removeItem('ctr-auth');
+  window.location.replace('index.html');
+}
+</script>
+</body>
+</html>
