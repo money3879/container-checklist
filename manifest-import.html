@@ -766,6 +766,11 @@ async function buildManifestXlsx(loc) {
   const templateBuf = await response.arrayBuffer();
   const zip = await JSZip.loadAsync(templateBuf);
 
+  // Excel 的計算鏈是範本舊狀態；我們只修改部分儲存格後，舊 calcChain
+  // 可能會與新的內容不一致。移除它，讓 Excel 開啟時自行重新建立計算鏈，
+  // 避免出現「已移除的記錄：xl/calcChain.xml」修復警告。
+  if (zip.file('xl/calcChain.xml')) zip.remove('xl/calcChain.xml');
+
   const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
   const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const parser = new DOMParser();
@@ -773,6 +778,10 @@ async function buildManifestXlsx(loc) {
 
   const workbookXml = parser.parseFromString(await zip.file('xl/workbook.xml').async('text'), 'application/xml');
   const relsXml = parser.parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('text'), 'application/xml');
+  // 移除 workbook.xml.rels 對 calcChain 的關聯。
+  for (const relNode of Array.from(relsXml.getElementsByTagName('Relationship'))) {
+    if ((relNode.getAttribute('Type') || '').includes('/calcChain')) relNode.parentNode.removeChild(relNode);
+  }
   const sheetEl = Array.from(workbookXml.getElementsByTagNameNS(NS, 'sheet')).find(s => s.getAttribute('name') === '進口艙單印1份');
   if (!sheetEl) throw new Error('範本檔案裡找不到「進口艙單印1份」工作表');
   const rid = sheetEl.getAttributeNS(REL_NS, 'id');
@@ -950,7 +959,31 @@ async function buildManifestXlsx(loc) {
   const calcMode = workbookXml.getElementsByTagNameNS(NS,'calcPr')[0];
   if (calcMode) calcMode.setAttribute('calcMode','auto');
 
+  // 5 筆時資料區從 3 列延伸到 5 列，Template 原本的列印範圍是 A1:R21。
+  // 合計在第 21 列，新增資料後會移到第 23 列，因此同步更新 Print_Area，
+  // 讓 Excel 的分頁預覽把船長簽章／下方說明一起納入。
+  const definedNames = workbookXml.getElementsByTagNameNS(NS, 'definedName');
+  for (const dn of Array.from(definedNames)) {
+    if (dn.getAttribute('name') === '_xlnm.Print_Area' && String(dn.textContent || '').includes('進口艙單印1份')) {
+      const endRow = 21 + extra;
+      dn.textContent = `進口艙單印1份!$A$1:$R$${endRow}`;
+    }
+  }
+
   zip.file(sheetTarget, serializer.serializeToString(sheetXml));
+  zip.file('xl/workbook.xml', serializer.serializeToString(workbookXml));
+  zip.file('xl/_rels/workbook.xml.rels', serializer.serializeToString(relsXml));
+
+  // 移除 [Content_Types].xml 中對 calcChain.xml 的 Override。
+  const ctFile = zip.file('[Content_Types].xml');
+  if (ctFile) {
+    const ctXml = parser.parseFromString(await ctFile.async('text'), 'application/xml');
+    for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
+      if (ov.getAttribute('PartName') === '/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+    }
+    zip.file('[Content_Types].xml', serializer.serializeToString(ctXml));
+  }
+
   return await zip.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
 }
 
