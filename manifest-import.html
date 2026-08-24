@@ -766,9 +766,8 @@ async function buildManifestXlsx(loc) {
   const templateBuf = await response.arrayBuffer();
   const zip = await JSZip.loadAsync(templateBuf);
 
-  // Excel 的計算鏈是範本舊狀態；我們只修改部分儲存格後，舊 calcChain
-  // 可能會與新的內容不一致。移除它，讓 Excel 開啟時自行重新建立計算鏈，
-  // 避免出現「已移除的記錄：xl/calcChain.xml」修復警告。
+  // 範本內原有 calcChain 是舊的計算快取；修改公式引用的來源資料後，
+  // 保留它反而會讓 Excel 啟動時要求修復，因此移除並讓 Excel 重新計算。
   if (zip.file('xl/calcChain.xml')) zip.remove('xl/calcChain.xml');
 
   const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -778,213 +777,313 @@ async function buildManifestXlsx(loc) {
 
   const workbookXml = parser.parseFromString(await zip.file('xl/workbook.xml').async('text'), 'application/xml');
   const relsXml = parser.parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('text'), 'application/xml');
-  // 移除 workbook.xml.rels 對 calcChain 的關聯。
+
+  // 移除 calcChain 關聯。
   for (const relNode of Array.from(relsXml.getElementsByTagName('Relationship'))) {
     if ((relNode.getAttribute('Type') || '').includes('/calcChain')) relNode.parentNode.removeChild(relNode);
   }
-  const sheetEl = Array.from(workbookXml.getElementsByTagNameNS(NS, 'sheet')).find(s => s.getAttribute('name') === '進口艙單印1份');
-  if (!sheetEl) throw new Error('範本檔案裡找不到「進口艙單印1份」工作表');
-  const rid = sheetEl.getAttributeNS(REL_NS, 'id');
-  const rel = Array.from(relsXml.getElementsByTagName('Relationship')).find(x => x.getAttribute('Id') === rid);
-  if (!rel) throw new Error('找不到艙單工作表的 XML 位置');
-  let sheetTarget = rel.getAttribute('Target').replace(/^\//, '');
-  if (!sheetTarget.startsWith('xl/')) sheetTarget = 'xl/' + sheetTarget.replace(/^\.\//, '');
-  const sheetFile = zip.file(sheetTarget);
-  if (!sheetFile) throw new Error(`找不到工作表檔案：${sheetTarget}`);
 
-  const sheetXml = parser.parseFromString(await sheetFile.async('text'), 'application/xml');
-  const root = sheetXml.documentElement;
-  const sheetData = root.getElementsByTagNameNS(NS, 'sheetData')[0];
-  if (!sheetData) throw new Error('艙單工作表缺少 sheetData');
+  // workbook 設為開啟時自動重新計算。
+  const calcPr = workbookXml.getElementsByTagNameNS(NS, 'calcPr')[0];
+  if (calcPr) {
+    calcPr.setAttribute('calcMode', 'auto');
+    calcPr.setAttribute('fullCalcOnLoad', '1');
+    calcPr.setAttribute('forceFullCalc', '1');
+  }
 
-  const rows = () => Array.from(sheetData.getElementsByTagNameNS(NS, 'row')).filter(r => r.parentNode === sheetData);
-  const getRow = n => rows().find(r => Number(r.getAttribute('r')) === n);
-  const colNum = letters => { let n=0; for (const ch of letters) n=n*26+(ch.charCodeAt(0)-64); return n; };
-  const splitRef = ref => { const m=String(ref).match(/^([A-Z]+)(\d+)$/); return {col:m[1],row:Number(m[2])}; };
-  const setRefRow = (ref, row) => { const p=splitRef(ref); return `${p.col}${row}`; };
+  function getSheetTarget(sheetName) {
+    const sheetEl = Array.from(workbookXml.getElementsByTagNameNS(NS, 'sheet'))
+      .find(s => s.getAttribute('name') === sheetName);
+    if (!sheetEl) throw new Error(`範本檔案裡找不到「${sheetName}」工作表`);
+    const rid = sheetEl.getAttributeNS(REL_NS, 'id');
+    const rel = Array.from(relsXml.getElementsByTagName('Relationship'))
+      .find(x => x.getAttribute('Id') === rid);
+    if (!rel) throw new Error(`找不到「${sheetName}」工作表的 XML 位置`);
+    let target = rel.getAttribute('Target').replace(/^\//, '');
+    if (!target.startsWith('xl/')) target = 'xl/' + target.replace(/^\.\//, '');
+    return target;
+  }
 
-  function findCell(row, ref) {
-    return Array.from(row.getElementsByTagNameNS(NS, 'c')).find(c => c.getAttribute('r') === ref && c.parentNode === row);
+  function splitRef(ref) {
+    const m = String(ref).match(/^([A-Z]+)(\d+)$/);
+    if (!m) throw new Error(`無效儲存格位置：${ref}`);
+    return { col:m[1], row:Number(m[2]) };
   }
-  function ensureCell(row, ref) {
-    let cell = findCell(row, ref);
-    if (cell) return cell;
-    cell = sheetXml.createElementNS(NS, 'c');
-    cell.setAttribute('r', ref);
-    const targetCol = colNum(splitRef(ref).col);
-    const cells = Array.from(row.getElementsByTagNameNS(NS, 'c')).filter(c => c.parentNode === row);
-    const before = cells.find(c => colNum(splitRef(c.getAttribute('r')).col) > targetCol);
-    if (before) row.insertBefore(cell, before); else row.appendChild(cell);
-    return cell;
+  function colNum(letters) {
+    let n=0; for (const ch of letters) n=n*26+(ch.charCodeAt(0)-64); return n;
   }
-  function clearCell(cell) {
-    while (cell.firstChild) cell.removeChild(cell.firstChild);
-    cell.removeAttribute('t');
+  function setRefRow(ref, row) {
+    const p=splitRef(ref); return `${p.col}${row}`;
   }
-  function setCell(ref, value) {
-    const p = splitRef(ref);
-    const row = getRow(p.row);
-    if (!row) throw new Error(`找不到第 ${p.row} 列`);
-    const cell = ensureCell(row, ref);
-    clearCell(cell);
-    if (value === null || value === undefined || value === '') return;
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const v = sheetXml.createElementNS(NS, 'v');
-      v.textContent = String(value);
-      cell.appendChild(v);
-    } else {
-      cell.setAttribute('t', 'inlineStr');
-      const is = sheetXml.createElementNS(NS, 'is');
-      const t = sheetXml.createElementNS(NS, 't');
-      const text = String(value);
-      if (/^\s|\s$/.test(text)) t.setAttribute('xml:space', 'preserve');
-      t.textContent = text;
-      is.appendChild(t);
-      cell.appendChild(is);
+
+  function sheetApi(sheetXml) {
+    const root = sheetXml.documentElement;
+    const sheetData = root.getElementsByTagNameNS(NS, 'sheetData')[0];
+    if (!sheetData) throw new Error('工作表缺少 sheetData');
+
+    const rows = () => Array.from(sheetData.getElementsByTagNameNS(NS, 'row')).filter(r => r.parentNode === sheetData);
+    const getRow = n => rows().find(r => Number(r.getAttribute('r')) === n);
+
+    function findCell(row, ref) {
+      return Array.from(row.getElementsByTagNameNS(NS, 'c'))
+        .find(c => c.getAttribute('r') === ref && c.parentNode === row);
     }
-  }
-  function clearValue(ref) {
-    const p=splitRef(ref), row=getRow(p.row); if (!row) return;
-    const cell=findCell(row,ref); if (cell) clearCell(cell);
-  }
-  function setFormula(ref, formula) {
-    const p=splitRef(ref), row=getRow(p.row); if (!row) throw new Error(`找不到第 ${p.row} 列`);
-    const cell=ensureCell(row,ref); clearCell(cell);
-    const f=sheetXml.createElementNS(NS,'f'); f.textContent=formula; cell.appendChild(f);
-    const v=sheetXml.createElementNS(NS,'v'); v.textContent='0'; cell.appendChild(v);
+    function ensureCell(row, ref) {
+      let cell=findCell(row,ref);
+      if (cell) return cell;
+      cell=sheetXml.createElementNS(NS,'c'); cell.setAttribute('r',ref);
+      const targetCol=colNum(splitRef(ref).col);
+      const cells=Array.from(row.getElementsByTagNameNS(NS,'c')).filter(c=>c.parentNode===row);
+      const before=cells.find(c=>colNum(splitRef(c.getAttribute('r')).col)>targetCol);
+      if (before) row.insertBefore(cell,before); else row.appendChild(cell);
+      return cell;
+    }
+    function clearChildren(cell) {
+      while (cell.firstChild) cell.removeChild(cell.firstChild);
+      cell.removeAttribute('t');
+    }
+    function setValue(ref, value) {
+      const p=splitRef(ref), row=getRow(p.row);
+      if (!row) throw new Error(`找不到第 ${p.row} 列`);
+      const cell=ensureCell(row,ref);
+      // 保留 cell 的 style / s 屬性，只替換內容。
+      clearChildren(cell);
+      if (value === null || value === undefined || value === '') return;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const v=sheetXml.createElementNS(NS,'v'); v.textContent=String(value); cell.appendChild(v);
+      } else {
+        cell.setAttribute('t','inlineStr');
+        const is=sheetXml.createElementNS(NS,'is');
+        const t=sheetXml.createElementNS(NS,'t');
+        const text=String(value);
+        if (/^\s|\s$/.test(text)) t.setAttribute('xml:space','preserve');
+        t.textContent=text; is.appendChild(t); cell.appendChild(is);
+      }
+    }
+    function setFormula(ref, formula, cachedValue='') {
+      const p=splitRef(ref), row=getRow(p.row);
+      if (!row) throw new Error(`找不到第 ${p.row} 列`);
+      const cell=ensureCell(row,ref);
+      clearChildren(cell);
+      const f=sheetXml.createElementNS(NS,'f'); f.textContent=formula; cell.appendChild(f);
+      const v=sheetXml.createElementNS(NS,'v');
+      if (cachedValue !== null && cachedValue !== undefined) v.textContent=String(cachedValue);
+      cell.appendChild(v);
+      if (typeof cachedValue === 'string') cell.setAttribute('t','str');
+    }
+    function clearValue(ref) {
+      const p=splitRef(ref), row=getRow(p.row); if (!row) return;
+      const cell=findCell(row,ref); if (cell) clearChildren(cell);
+    }
+    return {root,sheetData,rows,getRow,findCell,ensureCell,setValue,setFormula,clearValue};
   }
 
-  // 先處理超過 3 筆：只在 sheet2.xml 內移動資料列與合併範圍。
-  const templateStart = 16, templateCount = 3, lastTemplateRow = 18, footerStart = 19;
-  const extra = Math.max(0, items.length - templateCount);
-  if (extra > 0) {
-    const footerFirst = getRow(footerStart);
-    if (!footerFirst) throw new Error('範本找不到第 19 列的合計區');
+  // ── 1. 建船資料檔：只更新資料來源格，其他工作表的公式全部保留。 ──
+  const shipTarget=getSheetTarget('建船資料檔');
+  const shipXml=parser.parseFromString(await zip.file(shipTarget).async('text'),'application/xml');
+  const shipApi=sheetApi(shipXml);
 
-    // 保存第18列原本的 merge；這些才是新增資料列應該複製的結構。
-    const mergeCellsEl = root.getElementsByTagNameNS(NS, 'mergeCells')[0];
-    const originalMerges = mergeCellsEl ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS, 'mergeCell')).map(x => x.getAttribute('ref')) : [];
-    const dataMerges = originalMerges.filter(ref => {
-      const nums=(ref.match(/\d+/g)||[]).map(Number); return nums.length && Math.min(...nums) === lastTemplateRow && Math.max(...nums) === lastTemplateRow;
+  // 以最新 Template 的 B6:B13 為唯一資料來源。
+  // B12 沿用你目前表單的「到港日期」；B13 放繫泊日期，方便建船資料檔本身也跟著本次作業更新。
+  shipApi.setValue('B6', meta.ship?.ship_name || '');
+  shipApi.setValue('B7', meta.voyage || '');
+  shipApi.setValue('B8', meta.ship?.call_sign || '');
+  shipApi.setValue('B9', meta.ship?.captain_name || '');
+  shipApi.setValue('B10', meta.registration || '');
+  shipApi.setValue('B11', meta.ship?.gross_net_tonnage || '');
+  shipApi.setValue('B12', toRocDate(meta.arrivalDate));
+  shipApi.setValue('B13', toRocDate(meta.mooringDate));
+
+  // ── 2. 進口艙單：只填真正的資料來源欄位。D3/F3/H3/J3/L3/F6/J6/L6 皆保留 Template 公式。 ──
+  const sheetTarget=getSheetTarget('進口艙單印1份');
+  const sheetXml=parser.parseFromString(await zip.file(sheetTarget).async('text'),'application/xml');
+  const api=sheetApi(sheetXml);
+  const {root,sheetData,rows,getRow}=api;
+
+  const templateStart=16, templateCount=3, lastTemplateRow=18, footerStart=19;
+  const extra=Math.max(0,items.length-templateCount);
+
+  if (extra>0) {
+    const footerFirst=getRow(footerStart);
+    if (!footerFirst) throw new Error('最新範本找不到第 19 列的合計區');
+
+    const mergeCellsEl=root.getElementsByTagNameNS(NS,'mergeCells')[0];
+    const originalMerges=mergeCellsEl
+      ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x=>x.getAttribute('ref'))
+      : [];
+
+    // 只抓第18列的原始合併：新版 Template 的資料列是 F:G、K:M。
+    const dataMerges=originalMerges.filter(ref=>{
+      const nums=(ref.match(/\d+/g)||[]).map(Number);
+      return nums.length && Math.min(...nums)===lastTemplateRow && Math.max(...nums)===lastTemplateRow;
     });
 
-    // footer 所有列往下移；只改 r 屬性，不重建原有 cell/style。
+    // Footer（合計、簽章、英文說明）往下移，原有 style / cell 結構不重建。
     for (const row of rows()) {
       const n=Number(row.getAttribute('r'));
-      if (n >= footerStart) {
-        row.setAttribute('r', String(n + extra));
+      if (n>=footerStart) {
+        row.setAttribute('r',String(n+extra));
         for (const cell of Array.from(row.getElementsByTagNameNS(NS,'c'))) {
-          cell.setAttribute('r', setRefRow(cell.getAttribute('r'), n + extra));
+          cell.setAttribute('r',setRefRow(cell.getAttribute('r'),n+extra));
         }
       }
     }
 
-    // footer merge 一起下移。
     if (mergeCellsEl) {
       for (const mc of Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))) {
-        const ref=mc.getAttribute('ref'); const nums=(ref.match(/\d+/g)||[]).map(Number);
-        if (nums.length && Math.min(...nums) >= footerStart) {
-          mc.setAttribute('ref', ref.replace(/(\d+)/g, m => String(Number(m)+extra)));
+        const ref=mc.getAttribute('ref');
+        const nums=(ref.match(/\d+/g)||[]).map(Number);
+        if (nums.length && Math.min(...nums)>=footerStart) {
+          mc.setAttribute('ref',ref.replace(/(\d+)/g,m=>String(Number(m)+extra)));
         }
       }
     }
 
-    // 從第18列複製樣式與欄位結構，清掉內容後插入 19..18+extra。
-    const sourceRow = getRow(lastTemplateRow);
-    for (let i=1; i<=extra; i++) {
-      const nr = lastTemplateRow + i;
-      const clone = sourceRow.cloneNode(true);
-      clone.setAttribute('r', String(nr));
+    // 從最新 Template 第18列複製「列格式＋合併結構」。
+    // 公式不會被清掉：F 欄的公式會依新列號更新。
+    const sourceRow=getRow(lastTemplateRow);
+    for (let i=1;i<=extra;i++) {
+      const nr=lastTemplateRow+i;
+      const clone=sourceRow.cloneNode(true);
+      clone.setAttribute('r',String(nr));
+
       for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
-        cell.setAttribute('r', setRefRow(cell.getAttribute('r'), nr));
-        while (cell.firstChild) cell.removeChild(cell.firstChild);
-        cell.removeAttribute('t');
+        const oldRef=cell.getAttribute('r');
+        cell.setAttribute('r',setRefRow(oldRef,nr));
+
+        const f=cell.getElementsByTagNameNS(NS,'f')[0];
+        if (f) {
+          f.textContent=f.textContent.replace(/([A-Z]{1,3})18\b/g,(_,col)=>`${col}${nr}`);
+          // 讓預覽可看到公式結果；Excel 開啟後仍會重新計算。
+          while (cell.getElementsByTagNameNS(NS,'v').length) {
+            cell.removeChild(cell.getElementsByTagNameNS(NS,'v')[0]);
+          }
+          const v=sheetXml.createElementNS(NS,'v'); v.textContent=''; cell.appendChild(v);
+        } else {
+          // 新資料列的非公式內容先清空，但保留樣式。
+          while (cell.firstChild) cell.removeChild(cell.firstChild);
+          cell.removeAttribute('t');
+        }
       }
-      sheetData.insertBefore(clone, footerFirst);
+
+      sheetData.insertBefore(clone,footerFirst);
 
       if (mergeCellsEl) {
         for (const ref of dataMerges) {
-          const shifted = ref.replace(/(\d+)/g, m => String(Number(m) + i));
-          const mc = sheetXml.createElementNS(NS,'mergeCell');
-          mc.setAttribute('ref', shifted);
-          mergeCellsEl.appendChild(mc);
+          const shifted=ref.replace(/(\d+)/g,m=>String(Number(m)+i));
+          // 防止重複建立 merge。
+          const exists=Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+            .some(mc=>mc.getAttribute('ref')===shifted);
+          if (!exists) {
+            const mc=sheetXml.createElementNS(NS,'mergeCell');
+            mc.setAttribute('ref',shifted);
+            mergeCellsEl.appendChild(mc);
+          }
         }
       }
     }
-    if (mergeCellsEl) mergeCellsEl.setAttribute('count', String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
+    if (mergeCellsEl) mergeCellsEl.setAttribute('count',String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
 
-    // 更新 worksheet 尺寸。
     const dimension=root.getElementsByTagNameNS(NS,'dimension')[0];
     if (dimension) {
       const oldRef=dimension.getAttribute('ref');
-      dimension.setAttribute('ref', oldRef.replace(/(\d+)$/, m => String(Number(m)+extra)));
+      oldRef && dimension.setAttribute('ref',oldRef.replace(/(\d+)$/,m=>String(Number(m)+extra)));
     }
   }
 
-  // 表頭
-  setCell('D3', meta.ship.ship_name || '');
-  setCell('F3', meta.voyage || '');
-  setCell('H3', meta.ship.call_sign || '');
-  setCell('K3', meta.ship.captain_name || '');
-  setCell('N3', meta.registration || '');
-  setCell('F6', meta.ship.gross_net_tonnage || '');
-  setCell('K6', toRocDate(meta.arrivalDate));
-  setCell('M6', toRocDate(meta.mooringDate));
+  // Header 的公式保留；同步更新它們的 cached value，讓網站預覽先看到最新資料。
+  api.setFormula('D3','=建船資料檔!B6',meta.ship?.ship_name || '');
+  api.setFormula('F3','=建船資料檔!B7',meta.voyage || '');
+  api.setFormula('H3','=建船資料檔!B8',meta.ship?.call_sign || '');
+  api.setFormula('J3','=建船資料檔!B9',meta.ship?.captain_name || '');
+  api.setFormula('L3','=建船資料檔!B10',meta.registration || '');
+  api.setFormula('F6','=建船資料檔!B11',meta.ship?.gross_net_tonnage || '');
+  api.setFormula('J6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
+  // 最新 Template 明確是 L6=J6，因此這裡保留該公式，不自行改公式邏輯。
+  api.setFormula('L6','=J6',toRocDate(meta.arrivalDate));
 
-  const blankCols = ['A','B','C','D','E','F','H','I','K','L','P','S','T','U','V','W','X','Z','AA'];
-  if (items.length < templateCount) {
-    for (let row=templateStart+items.length; row<templateStart+templateCount; row++) for (const col of blankCols) clearValue(`${col}${row}`);
+  const blankCols=['A','B','C','D','E','H','I','J','K','P','S','T','U','V','W','X','Z','AA'];
+  if (items.length<templateCount) {
+    for (let row=templateStart+items.length;row<templateStart+templateCount;row++) {
+      for (const col of blankCols) api.clearValue(`${col}${row}`);
+      // F:G 是公式合併格，不清除 F。
+      // K:M 是收貨人合併格，清除 K 即可。
+    }
   }
 
-  const taxIdShown = new Set();
-  items.forEach((it,i) => {
+  const taxIdShown=new Set();
+  items.forEach((it,i)=>{
     const row=templateStart+i;
-    setCell(`A${row}`,it.billNo); setCell(`B${row}`,it.sealNo); setCell(`C${row}`,Number(it.pieces)||0);
-    setCell(`D${row}`,it.unit); setCell(`E${row}`,it.trackNo); setCell(`F${row}`,it.cargoDesc);
-    setCell(`H${row}`,`R:${loc}\nT:KNH0010W\nL:CNXMN`); setCell(`I${row}`,Number(it.weight)||0); setCell(`K${row}`,'KGS');
-    setCell(`L${row}`,it.consigneeInfo); setCell(`P${row}`,it.remark || '(1)'); setCell(`S${row}`,it.consigneeShort);
-    setCell(`T${row}`,it.sealNumRaw); setCell(`U${row}`,'SAME AS CONSIGNEE\n');
-    if (!taxIdShown.has(it.consigneeShort)) { setCell(`V${row}`,it.taxId || ''); taxIdShown.add(it.consigneeShort); }
-    else setCell(`V${row}`,'');
-    setCell(`W${row}`,it.shortName || ''); setCell(`X${row}`,'EXPRESS PACKAGE'); setCell(`Z${row}`,it.mappedType); setCell(`AA${row}`,2);
+    api.setValue(`A${row}`,it.billNo);
+    api.setValue(`B${row}`,it.sealNo);
+    api.setValue(`C${row}`,Number(it.pieces)||0);
+    api.setValue(`D${row}`,it.unit);
+    api.setValue(`E${row}`,it.trackNo);
+
+    // F:G 是 Template 原本的公式，不能改成一般文字。
+    const formula=`T${row}&"  "&E${row}&"/"&U${row}&"/"&V${row}&"/"&P${row}`;
+    const formulaResult=`${it.sealNumRaw || ''}  ${it.trackNo || ''}/${it.mappedType || ''}/${it.taxId || ''}/${it.remark || '(1)'}`;
+    api.setFormula(`F${row}`,`=${formula}`,formulaResult);
+
+    api.setValue(`H${row}`,`R:${loc}\nT:KNH0010W\nL:CNXMN`);
+    api.setValue(`I${row}`,Number(it.weight)||0);
+    api.setValue(`J${row}`,'KGS');
+
+    // K:M 是新版 Template 的合併儲存格，K 才是 master cell。
+    api.setValue(`K${row}`,it.consigneeInfo);
+
+    api.setValue(`P${row}`,it.remark || '(1)');
+    api.setValue(`S${row}`,it.consigneeShort);
+    api.setValue(`T${row}`,it.sealNumRaw);
+    api.setValue(`U${row}`,'SAME AS CONSIGNEE\n');
+
+    if (!taxIdShown.has(it.consigneeShort)) {
+      api.setValue(`V${row}`,it.taxId || '');
+      taxIdShown.add(it.consigneeShort);
+    } else {
+      api.setValue(`V${row}`,'');
+    }
+
+    api.setValue(`W${row}`,it.shortName || '');
+    api.setValue(`X${row}`,'EXPRESS PACKAGE');
+    api.setValue(`Z${row}`,it.mappedType);
+    api.setValue(`AA${row}`,2);
   });
 
+  // 合計列：保留「公式」而不是把公式覆蓋成固定數字。
   const totalRow=templateStart+items.length;
   const totalPieces=items.reduce((sum,it)=>sum+(parseInt(it.pieces)||0),0);
   const totalWeight=items.reduce((sum,it)=>sum+(parseFloat(it.weight)||0),0);
-  setCell(`A${totalRow}`,'合計'); setCell(`C${totalRow}`,totalPieces); setCell(`D${totalRow}`,items[0]?items[0].unit:'PKG'); setCell(`I${totalRow}`,totalWeight);
+  const lastDataRow=templateStart+items.length-1;
+  api.setValue(`A${totalRow}`,'合計');
+  api.setFormula(`C${totalRow}`,`=SUM(C${templateStart}:C${lastDataRow})`,totalPieces);
+  api.setValue(`D${totalRow}`,items[0]?items[0].unit:'PKG');
+  api.setFormula(`I${totalRow}`,`=SUM(I${templateStart}:J${lastDataRow})`,totalWeight);
 
-  // Excel 開啟時重新計算公式；不改其它工作表。
-  const calcPr = root.ownerDocument;
-  const calcMode = workbookXml.getElementsByTagNameNS(NS,'calcPr')[0];
-  if (calcMode) calcMode.setAttribute('calcMode','auto');
-
-  // 5 筆時資料區從 3 列延伸到 5 列，Template 原本的列印範圍是 A1:R21。
-  // 合計在第 21 列，新增資料後會移到第 23 列，因此同步更新 Print_Area，
-  // 讓 Excel 的分頁預覽把船長簽章／下方說明一起納入。
-  const definedNames = workbookXml.getElementsByTagNameNS(NS, 'definedName');
+  // 更新艙單的 Print Area。新版 Template 是 A1:N21。
+  const newPrintEnd=21+extra;
+  const definedNames=workbookXml.getElementsByTagNameNS(NS,'definedName');
   for (const dn of Array.from(definedNames)) {
-    if (dn.getAttribute('name') === '_xlnm.Print_Area' && String(dn.textContent || '').includes('進口艙單印1份')) {
-      const endRow = 21 + extra;
-      dn.textContent = `進口艙單印1份!$A$1:$R$${endRow}`;
+    if (dn.getAttribute('name')==='_xlnm.Print_Area' && String(dn.textContent||'').includes('進口艙單印1份')) {
+      dn.textContent=`'進口艙單印1份'!$A$1:$N$${newPrintEnd}`;
     }
   }
 
-  zip.file(sheetTarget, serializer.serializeToString(sheetXml));
-  zip.file('xl/workbook.xml', serializer.serializeToString(workbookXml));
-  zip.file('xl/_rels/workbook.xml.rels', serializer.serializeToString(relsXml));
+  zip.file(shipTarget,serializer.serializeToString(shipXml));
+  zip.file(sheetTarget,serializer.serializeToString(sheetXml));
+  zip.file('xl/workbook.xml',serializer.serializeToString(workbookXml));
+  zip.file('xl/_rels/workbook.xml.rels',serializer.serializeToString(relsXml));
 
-  // 移除 [Content_Types].xml 中對 calcChain.xml 的 Override。
-  const ctFile = zip.file('[Content_Types].xml');
+  const ctFile=zip.file('[Content_Types].xml');
   if (ctFile) {
-    const ctXml = parser.parseFromString(await ctFile.async('text'), 'application/xml');
+    const ctXml=parser.parseFromString(await ctFile.async('text'),'application/xml');
     for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
-      if (ov.getAttribute('PartName') === '/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+      if (ov.getAttribute('PartName')==='/xl/calcChain.xml') ov.parentNode.removeChild(ov);
     }
-    zip.file('[Content_Types].xml', serializer.serializeToString(ctXml));
+    zip.file('[Content_Types].xml',serializer.serializeToString(ctXml));
   }
 
-  return await zip.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
+  return await zip.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
 }
 
 function backToEdit() {
