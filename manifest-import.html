@@ -237,22 +237,22 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
 
     <div class="field-row">
       <div class="field">
-        <label>航次 *</label>
-        <input type="text" id="f-voyage" placeholder="例如 260727">
-      </div>
-      <div class="field">
         <label>船隻掛號 *</label>
         <input type="text" id="f-registration" placeholder="例如 15PAHD" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div class="field">
+        <label>航次 *</label>
+        <input type="text" id="f-voyage" placeholder="例如 260727">
       </div>
     </div>
 
     <div class="field-row">
       <div class="field">
-        <label>到港日期 *</label>
+        <label>時間 *</label>
         <input type="date" id="f-arrival-date">
       </div>
       <div class="field">
-        <label>繫泊日期 *</label>
+        <label>申請日期 *</label>
         <input type="date" id="f-mooring-date">
       </div>
     </div>
@@ -500,8 +500,8 @@ function generatePreview() {
   if (!shipId) missing.push('請選擇一程船');
   if (!voyage) missing.push('請輸入航次');
   if (!registration) missing.push('請輸入船隻掛號');
-  if (!arrivalDate) missing.push('請輸入到港日期');
-  if (!mooringDate) missing.push('請輸入繫泊日期');
+  if (!arrivalDate) missing.push('請輸入時間');
+  if (!mooringDate) missing.push('請輸入申請日期');
   if (!locationList.length) missing.push('請至少輸入一個卸存地');
   locationList.forEach(l => {
     if (!l.ship2Name) missing.push(`卸存地「${l.location}」尚未輸入二程船`);
@@ -884,7 +884,7 @@ async function buildManifestXlsx(loc) {
   const shipApi=sheetApi(shipXml);
 
   // 以最新 Template 的 B6:B13 為唯一資料來源。
-  // B12 沿用你目前表單的「到港日期」；B13 放繫泊日期，方便建船資料檔本身也跟著本次作業更新。
+  // B12 對應表單的「時間」；B13 對應表單的「申請日期」，方便建船資料檔本身也跟著本次作業更新。
   shipApi.setValue('B6', meta.ship?.ship_name || '');
   shipApi.setValue('B7', meta.voyage || '');
   shipApi.setValue('B8', meta.ship?.call_sign || '');
@@ -1018,11 +1018,11 @@ async function buildManifestXlsx(loc) {
     api.setValue(`B${row}`,it.sealNo);
     api.setValue(`C${row}`,Number(it.pieces)||0);
     api.setValue(`D${row}`,it.unit);
-    api.setValue(`E${row}`,it.trackNo);
+    api.setValue(`E${row}`,it.sealNumRaw);
 
     // F:G 是 Template 原本的公式，不能改成一般文字。
     const formula=`T${row}&"  "&E${row}&"/"&U${row}&"/"&V${row}&"/"&P${row}`;
-    const formulaResult=`${it.sealNumRaw || ''}  ${it.trackNo || ''}/${it.mappedType || ''}/${it.taxId || ''}/${it.remark || '(1)'}`;
+    const formulaResult=`EXPRESS PACKAGE  ${it.sealNumRaw || ''}/${it.mappedType || ''}/2/${it.trackNo || ''}`;
     api.setFormula(`F${row}`,`=${formula}`,formulaResult);
 
     api.setValue(`H${row}`,`R:${loc}\nT:KNH0010W\nL:CNXMN`);
@@ -1032,22 +1032,25 @@ async function buildManifestXlsx(loc) {
     // K:M 是新版 Template 的合併儲存格，K 才是 master cell。
     api.setValue(`K${row}`,it.consigneeInfo);
 
-    api.setValue(`P${row}`,it.remark || '(1)');
-    api.setValue(`S${row}`,it.consigneeShort);
-    api.setValue(`T${row}`,it.sealNumRaw);
-    api.setValue(`U${row}`,'SAME AS CONSIGNEE\n');
+    // P 之後是新版 Template 的實際公式來源欄位。
+    // F:G 的公式依序讀取 T / U / V / P，所以這四欄必須對應範例：
+    // T=貨物描述、U=櫃型、V=件數(2)、P=國際碼。
+    api.setValue(`N${row}`,it.remark || '(1)');
+    api.setValue(`O${row}`,it.consigneeShort);
+    api.setValue(`P${row}`,it.trackNo || '');
+    api.setValue(`Q${row}`,'SAME AS CONSIGNEE\n');
 
     if (!taxIdShown.has(it.consigneeShort)) {
-      api.setValue(`V${row}`,it.taxId || '');
+      api.setValue(`R${row}`,it.taxId || '');
       taxIdShown.add(it.consigneeShort);
     } else {
-      api.setValue(`V${row}`,'');
+      api.setValue(`R${row}`,'');
     }
 
-    api.setValue(`W${row}`,it.shortName || '');
-    api.setValue(`X${row}`,'EXPRESS PACKAGE');
-    api.setValue(`Z${row}`,it.mappedType);
-    api.setValue(`AA${row}`,2);
+    api.setValue(`S${row}`,it.shortName || '');
+    api.setValue(`T${row}`,'EXPRESS PACKAGE');
+    api.setValue(`U${row}`,it.mappedType);
+    api.setValue(`V${row}`,2);
   });
 
   // 合計列：保留「公式」而不是把公式覆蓋成固定數字。
@@ -1102,7 +1105,7 @@ async function exportManifest() {
     const meta = window._manifestMeta;
     const loc = currentLocationTab;
     const outBuf = await buildManifestXlsx(loc);
-    const filename = `${meta.ship.ship_name}_${meta.voyage}_${loc}_艙單.xlsx`;
+    const filename = `${meta.ship.ship_name}_${meta.registration}_${loc}_艙單.xlsx`;
     const blob = new Blob([outBuf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href=url; a.download=filename;
