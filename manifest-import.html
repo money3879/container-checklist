@@ -68,9 +68,23 @@ main { padding:16px; padding-bottom:40px; max-width:960px; margin:0 auto }
 .field-row .field input[type="date"] { font-size:.82rem; padding:10px 8px }
 
 @media (max-width:400px) {
-  .field-row { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px }
-  .field input, .field select { font-size:.82rem; padding-left:8px; padding-right:8px }
-  .field-row .field input[type="date"] { font-size:.72rem; padding-left:6px; padding-right:6px }
+  .field-row {
+    grid-template-columns: minmax(0,46%) minmax(0,46%);
+    justify-content: space-between;
+    gap: 0;
+  }
+  .field input, .field select {
+    width:100%;
+    box-sizing:border-box;
+    font-size:.80rem;
+    padding-left:7px;
+    padding-right:7px;
+  }
+  .field-row .field input[type="date"] {
+    font-size:.68rem;
+    padding-left:4px;
+    padding-right:4px;
+  }
 }
 .field-hint { font-size:.68rem; color:#999999; margin-top:4px }
 
@@ -767,32 +781,127 @@ async function buildManifestWorksheet(loc) {
   const extraRows = Math.max(0, items.length - TEMPLATE_ROWS_BUILT);
 
   if (extraRows > 0) {
-    // 不使用 duplicateRow（該 API 對合併儲存格處理有已知瑕疵），
-    // 改為手動插入空白列 + 逐格複製樣式 + 明確重建合併儲存格範圍
-    const styleSourceRow = TEMPLATE_ROW + TEMPLATE_ROWS_BUILT - 1; // row 18，作為樣式來源
+    /*
+      Template 的第 16~18 列本身就是完整的資料列格式，
+      包含 F:G、L:O 等合併儲存格。
+
+      這裡不要重新 mergeCells()，因為 Template 已經有自己的合併結構。
+      問題在於 ExcelJS 的 insertRow() 不會可靠地同步更新既有的
+      merged-cell ranges；直接在第 19 列插入時，原本「合計」列的
+      F19:G19 / L19:O19 仍可能留在 merge 清單中，造成：
+      "Cannot merge already merged cells"
+
+      因此：
+      1. 先保存插入點之後所有 merged ranges
+      2. 暫時解除這些 ranges
+      3. 插入新列
+      4. 把原本的 ranges 往下移一列
+      5. 只複製 Template 第 18 列「原本就存在」的 merge 結構到新列
+         ——不重新設計或修改 Template 的版面。
+    */
+    const styleSourceRow = TEMPLATE_ROW + TEMPLATE_ROWS_BUILT - 1; // row 18
     const colCount = 27; // A~AA
 
-    for (let i = 0; i < extraRows; i++) {
-      const insertAt = TEMPLATE_ROW + TEMPLATE_ROWS_BUILT + i; // 插入位置：緊接在目前資料區塊之後
-      ws.insertRow(insertAt, []); // 先插入一個空白列，後面的內容（合計列等）會自動往下推
-
-      const srcRow = ws.getRow(styleSourceRow);
-      const dstRow = ws.getRow(insertAt);
+    const copyStyle = (srcRowNum, dstRowNum) => {
+      const srcRow = ws.getRow(srcRowNum);
+      const dstRow = ws.getRow(dstRowNum);
       dstRow.height = srcRow.height;
 
       for (let c = 1; c <= colCount; c++) {
         const srcCell = srcRow.getCell(c);
         const dstCell = dstRow.getCell(c);
         dstCell.style = JSON.parse(JSON.stringify(srcCell.style || {}));
+        if (srcCell.numFmt) dstCell.numFmt = srcCell.numFmt;
       }
-      dstRow.commit();
+    };
 
-      // 明確重建這一列的合併儲存格範圍（F:G 與 L:O）
-      // 先解除合併（不管目前狀態為何），確保乾淨狀態，避免「已經合併過」的例外
-      try { ws.unMergeCells(`F${insertAt}:G${insertAt}`); } catch(e) {}
-      try { ws.unMergeCells(`L${insertAt}:O${insertAt}`); } catch(e) {}
-      ws.mergeCells(`F${insertAt}:G${insertAt}`);
-      ws.mergeCells(`L${insertAt}:O${insertAt}`);
+    const getMergeInfo = (range) => ({
+      top: range.minRow,
+      left: range.minCol,
+      bottom: range.maxRow,
+      right: range.maxCol
+    });
+
+    for (let i = 0; i < extraRows; i++) {
+      const insertAt = TEMPLATE_ROW + TEMPLATE_ROWS_BUILT + i;
+
+      // 保存插入點之後的合併範圍；這些是 Template 原本的版面，
+      // 插入新資料列後應該整體往下移，而不是重新建立。
+      const mergesToShift = Array.from(ws.model.merges || [])
+        .map(ref => {
+          const [a, b] = ref.split(':');
+          const decode = cell => {
+            const m = cell.match(/^([A-Z]+)(\\d+)$/);
+            let col = 0;
+            for (const ch of m[1]) col = col * 26 + ch.charCodeAt(0) - 64;
+            return { col, row: Number(m[2]) };
+          };
+          const p1 = decode(a);
+          const p2 = decode(b || a);
+          return {
+            ref,
+            minRow: Math.min(p1.row, p2.row),
+            maxRow: Math.max(p1.row, p2.row),
+            minCol: Math.min(p1.col, p2.col),
+            maxCol: Math.max(p1.col, p2.col)
+          };
+        })
+        .filter(r => r.minRow >= insertAt);
+
+      // 暫時解除「合計列」及其下面所有原有合併範圍。
+      // 這一步不是修改 Template 的設計，而只是讓 insertRow 能安全移動它們。
+      for (const m of mergesToShift) {
+        try { ws.unMergeCells(m.ref); } catch (e) {}
+      }
+
+      ws.insertRow(insertAt, []);
+
+      // 原本 Template 第 18 列的格式複製到新增資料列。
+      copyStyle(styleSourceRow, insertAt);
+
+      // 將原有的合併版面往下移一列。
+      for (const m of mergesToShift) {
+        const shiftedTop = m.minRow + 1;
+        const shiftedBottom = m.maxRow + 1;
+        const shiftedRef =
+          `${ws.getCell(shiftedTop, m.minCol).address}:${ws.getCell(shiftedBottom, m.maxCol).address}`;
+        try { ws.mergeCells(shiftedRef); } catch (e) {
+          throw new Error(`Template 合併儲存格移動失敗：${shiftedRef}（${e.message}）`);
+        }
+      }
+
+      // 只把 Template 第 18 列原本就有的合併結構複製到新增列。
+      const sourceMerges = Array.from(ws.model.merges || [])
+        .map(ref => {
+          const [a, b] = ref.split(':');
+          const decode = cell => {
+            const m = cell.match(/^([A-Z]+)(\\d+)$/);
+            let col = 0;
+            for (const ch of m[1]) col = col * 26 + ch.charCodeAt(0) - 64;
+            return { col, row: Number(m[2]) };
+          };
+          const p1 = decode(a);
+          const p2 = decode(b || a);
+          return {
+            minRow: Math.min(p1.row, p2.row),
+            maxRow: Math.max(p1.row, p2.row),
+            minCol: Math.min(p1.col, p2.col),
+            maxCol: Math.max(p1.col, p2.col)
+          };
+        })
+        .filter(m =>
+          m.minRow === styleSourceRow &&
+          m.maxRow === styleSourceRow
+        );
+
+      for (const m of sourceMerges) {
+        const ref =
+          `${ws.getCell(insertAt, m.minCol).address}:${ws.getCell(insertAt, m.maxCol).address}`;
+        // Template 第 18 列的 merge 結構只會被複製一次。
+        if (!(ws.model.merges || []).includes(ref)) {
+          ws.mergeCells(ref);
+        }
+      }
     }
   } else if (items.length < TEMPLATE_ROWS_BUILT) {
     for (let row = TEMPLATE_ROW + items.length; row < TEMPLATE_ROW + TEMPLATE_ROWS_BUILT; row++) {
