@@ -585,7 +585,7 @@ function generatePreview() {
     manifestByLocation[rowLocation].items.push({
       billNo, sealNo, pieces, unit,
       trackNo: intlCode, cargoDesc, weight,
-      consigneeShort: consigneeName, consigneeInfo,
+      consigneeName, consigneeShort: match.short_name || '', consigneeInfo,
       taxId: match.tax_id || '',
       shortName: match.short_name || '',
       mappedType, sealNumRaw,
@@ -1018,11 +1018,12 @@ async function buildManifestXlsx(loc) {
     api.setValue(`B${row}`,it.sealNo);
     api.setValue(`C${row}`,Number(it.pieces)||0);
     api.setValue(`D${row}`,it.unit);
-    api.setValue(`E${row}`,it.sealNumRaw);
+    // E = 貨櫃國際碼，例如 TCNU9125529；P = 封條，例如 200405。
+    api.setValue(`E${row}`,it.trackNo || '');
 
     // F:G 是 Template 原本的公式，不能改成一般文字。
     const formula=`T${row}&"  "&E${row}&"/"&U${row}&"/"&V${row}&"/"&P${row}`;
-    const formulaResult=`EXPRESS PACKAGE  ${it.sealNumRaw || ''}/${it.mappedType || ''}/2/${it.trackNo || ''}`;
+    const formulaResult=`EXPRESS PACKAGE  ${it.trackNo || ''}/${it.mappedType || ''}/2/${it.sealNumRaw || ''}`;
     api.setFormula(`F${row}`,`=${formula}`,formulaResult);
 
     api.setValue(`H${row}`,`R:${loc}\nT:KNH0010W\nL:CNXMN`);
@@ -1032,12 +1033,12 @@ async function buildManifestXlsx(loc) {
     // K:M 是新版 Template 的合併儲存格，K 才是 master cell。
     api.setValue(`K${row}`,it.consigneeInfo);
 
-    // P 之後是新版 Template 的實際公式來源欄位。
-    // F:G 的公式依序讀取 T / U / V / P，所以這四欄必須對應範例：
-    // T=貨物描述、U=櫃型、V=件數(2)、P=國際碼。
+    // N~V 依最新範本的欄位定義：
+    // N=(1)、O=收貨人名稱(英文)、P=封條、Q=SAME AS CONSIGNEE、
+    // R=統一編號、S=收貨人中文簡稱、T=EXPRESS PACKAGE、U=櫃型、V=2。
     api.setValue(`N${row}`,it.remark || '(1)');
-    api.setValue(`O${row}`,it.consigneeShort);
-    api.setValue(`P${row}`,it.trackNo || '');
+    api.setValue(`O${row}`,it.consigneeName || '');
+    api.setValue(`P${row}`,it.sealNumRaw || '');
     api.setValue(`Q${row}`,'SAME AS CONSIGNEE\n');
 
     if (!taxIdShown.has(it.consigneeShort)) {
