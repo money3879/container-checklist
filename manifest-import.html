@@ -1159,9 +1159,10 @@ async function buildManifestXlsx(loc) {
   api.setFormula('J3','=建船資料檔!B9',meta.ship?.captain_name || '');
   api.setFormula('L3','=建船資料檔!B10',meta.registration || '');
   api.setFormula('F6','=建船資料檔!B11',meta.ship?.gross_net_tonnage || '');
-  api.setFormula('J6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
-  // 最新 Template 明確是 L6=J6，因此這裡保留該公式，不自行改公式邏輯。
-  api.setFormula('L6','=J6',toRocDate(meta.arrivalDate));
+  api.setFormula('K6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
+  // 最新 Template 的繫泊時間位於 M6:P6 合併格，主格是 M6，並由 K6 帶入同一個時間。
+  // 因此預覽與匯出都要寫在合併儲存格的主格，不能寫到 J6/L6。
+  api.setFormula('M6','=K6',toRocDate(meta.arrivalDate));
 
   const blankCols=['A','B','C','D','E','H','I','J','K','P','S','T','U','V','W','X','Z','AA'];
   if (items.length<templateCount) {
