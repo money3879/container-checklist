@@ -249,11 +249,11 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
     <div class="field-row">
       <div class="field">
         <label>時間 *</label>
-        <input type="date" id="f-arrival-date">
+        <input type="text" id="f-arrival-date" class="roc-date-input" inputmode="numeric" maxlength="9" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
       </div>
       <div class="field">
         <label>申請日期 *</label>
-        <input type="date" id="f-mooring-date">
+        <input type="text" id="f-mooring-date" class="roc-date-input" inputmode="numeric" maxlength="9" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
       </div>
     </div>
   </div>
@@ -485,6 +485,37 @@ function toRocDate(isoDate) {
   return `${y - 1911}/${m}/${d}`;
 }
 
+// 網站日期直接使用民國年顯示，例如 115/08/25。
+// 產生 Excel 前再轉回 ISO，讓既有的資料處理流程維持不變。
+function rocToIsoDate(value) {
+  const raw = String(value || '').trim().replace(/[.-]/g, '/');
+  const m = raw.match(/^(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})$/);
+  if (!m) return '';
+  const year = Number(m[1]) + 1911;
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const dt = new Date(year, month - 1, day);
+  if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return '';
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+function formatRocDateInput(el) {
+  let v = el.value.replace(/\D/g, '').slice(0, 7);
+  if (v.length > 3) v = v.slice(0,3) + '/' + v.slice(3);
+  if (v.length > 6) v = v.slice(0,6) + '/' + v.slice(6);
+  el.value = v;
+}
+
+function normalizeRocDateInput(el) {
+  const iso = rocToIsoDate(el.value);
+  if (!el.value.trim()) {
+    el.setCustomValidity('');
+    return;
+  }
+  el.setCustomValidity(iso ? '' : '請輸入有效的民國日期，例如 115/08/25');
+  if (iso) el.value = toRocDate(iso);
+}
+
 /* ══ 核心：產生艙單資料（依卸存地分組） ══ */
 function generatePreview() {
   clearError();
@@ -492,8 +523,10 @@ function generatePreview() {
   const shipId = document.getElementById('f-ship-select').value;
   const voyage = document.getElementById('f-voyage').value.trim();
   const registration = document.getElementById('f-registration').value.trim().toUpperCase();
-  const arrivalDate = document.getElementById('f-arrival-date').value;
-  const mooringDate = document.getElementById('f-mooring-date').value;
+  const arrivalInput = document.getElementById('f-arrival-date').value;
+  const mooringInput = document.getElementById('f-mooring-date').value;
+  const arrivalDate = rocToIsoDate(arrivalInput);
+  const mooringDate = rocToIsoDate(mooringInput);
   const locationList = getLocationInputs();
 
   const missing = [];
@@ -1121,11 +1154,6 @@ async function exportManifest() {
   }
 }
 
-function toRocDate(isoDate) {
-  if (!isoDate) return '';
-  const [y, m, d] = isoDate.split('-').map(Number);
-  return `${y - 1911}/${m}/${d}`;
-}
 
 init();
 </script>
