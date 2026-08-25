@@ -744,7 +744,23 @@ function excelCellDisplayValue(cell) {
     return '';
   }
   if (value == null) return '';
-  return String(value);
+  let text = String(value);
+
+  // 預覽時不要把 Template 裡的英文欄位說明帶出來；實際 Excel 匯出不受影響。
+  // 這些說明是「預定到港時間---Time of Arrival」與「繫泊時間---time a Mooring Yeat」。
+  const labelOnly = [
+    '預定到港時間---Time of Arrival',
+    '繫泊時間---time a Mooring Yeat'
+  ];
+  if (labelOnly.some(label => text.trim().toLowerCase() === label.toLowerCase())) return '';
+
+  // 若日期儲存格的預覽值意外把說明文字與日期一起帶出，只保留日期部分。
+  text = text
+    .replace(/預定到港時間\s*[-—–]+\s*Time of Arrival\s*/i, '')
+    .replace(/繫泊時間\s*[-—–]+\s*time\s*a\s*Mooring\s*Yeat\s*/i, '')
+    .trim();
+
+  return text;
 }
 
 function excelArgbToCss(argb) {
@@ -820,12 +836,14 @@ async function renderExcelStyleView() {
     if (!ws) throw new Error('找不到「進口艙單印1份」工作表');
 
     const items = manifestByLocation[currentLocationTab].items;
-    const totalRow = 16 + items.length;
     const container = document.getElementById('excel-preview-table');
+
+    // 艙單預覽只顯示 Excel 的列印範圍。
+    // Template 基準列印範圍是 A1:N21；超過 3 筆時，列印範圍會跟著新增資料列往下延伸。
     const startRow = 1;
-    const endRow = Math.min(totalRow + 3, ws.rowCount);
+    const endRow = Math.min(21 + Math.max(0, items.length - 3), ws.rowCount);
     const startCol = 1;
-    const endCol = 20;
+    const endCol = 14; // N 欄
 
     const skipSet = new Set();
     const spanMap = {};
