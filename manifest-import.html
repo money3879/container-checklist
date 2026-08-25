@@ -730,7 +730,18 @@ function excelCellDisplayValue(cell) {
   }
 
   if (value instanceof Date) {
-    try { return value.toLocaleDateString('zh-TW'); } catch(e) { return String(value); }
+    // ExcelJS 依照儲存格的日期格式把公式快取值轉成 Date。
+    // 範本中的日期是民國年文字（例如 115/08/25），這種值不是 JS 原生日期，
+    // 若被當成 Date 解析就可能在預覽出現 Invalid Date。
+    if (!Number.isNaN(value.getTime())) {
+      return value.toLocaleDateString('zh-TW');
+    }
+    // Date 無效時，優先回頭取公式/儲存格模型中的原始快取值。
+    const rawModel = cell && cell.model ? cell.model.v : null;
+    if (rawModel !== null && rawModel !== undefined && rawModel !== '') {
+      return String(rawModel);
+    }
+    return '';
   }
   if (value == null) return '';
   return String(value);
