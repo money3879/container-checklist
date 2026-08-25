@@ -154,6 +154,12 @@ input[type="file"] { display:none }
 .error-box.show { display:block }
 .error-box ul { margin:6px 0 0 18px }
 
+
+.excel-preview-wrap { overflow:auto; border:1px solid rgba(0,0,0,.14); border-radius:8px; background:#dfe3e8; padding:14px; }
+.excel-preview-page { display:inline-block; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.16); }
+.excel-preview-real { border-collapse:collapse; table-layout:fixed; font-family:Arial,"Noto Sans TC",sans-serif; background:#fff; }
+.excel-preview-real td { box-sizing:border-box; padding:1px 3px; overflow:hidden; line-height:1.15; }
+
 #preview-section { display:none }
 #preview-section.show { display:block }
 
@@ -706,9 +712,96 @@ async function renderPreview() {
   document.getElementById('preview-section').classList.add('show');
 }
 
+function excelCellDisplayValue(cell) {
+  let value = cell ? cell.value : null;
+
+  // ExcelJS 的公式儲存格通常是 { formula, result }。
+  // 預覽要顯示「公式算出的結果」，而不是 [object Object]。
+  if (value && typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      value = value.result;
+    } else if (value.richText) {
+      value = value.richText.map(t => t.text || '').join('');
+    } else if (value.text != null) {
+      value = value.text;
+    } else if (value.formula != null) {
+      value = '';
+    }
+  }
+
+  if (value instanceof Date) {
+    try { return value.toLocaleDateString('zh-TW'); } catch(e) { return String(value); }
+  }
+  if (value == null) return '';
+  return String(value);
+}
+
+function excelArgbToCss(argb) {
+  if (!argb) return '';
+  const hex = String(argb).replace(/^FF/i, '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(hex)) return '';
+  return '#' + hex;
+}
+
+function excelSideCss(side) {
+  if (!side || !side.style) return '';
+  const map = { thin:'1px', medium:'2px', thick:'3px', double:'3px', hair:'1px', dotted:'1px', dashed:'1px' };
+  const width = map[side.style] || '1px';
+  const color = excelArgbToCss(side.color && (side.color.argb || side.color.rgb)) || '#888';
+  const style = side.style === 'double' ? 'double' : (side.style === 'dotted' ? 'dotted' : (side.style === 'dashed' ? 'dashed' : 'solid'));
+  return `${width} ${style} ${color}`;
+}
+
+function excelCellInlineStyle(cell, row) {
+  const st = cell.style || {};
+  const font = st.font || {};
+  const fill = st.fill || {};
+  const alignment = st.alignment || {};
+  const border = st.border || {};
+  const css = [];
+
+  if (font.name) css.push(`font-family:${font.name},Arial,sans-serif`);
+  if (font.sz) css.push(`font-size:${Math.max(8, Number(font.sz))}pt`);
+  if (font.bold) css.push('font-weight:700');
+  if (font.italic) css.push('font-style:italic');
+  if (font.color) {
+    const color = excelArgbToCss(font.color.argb || font.color.rgb);
+    if (color) css.push(`color:${color}`);
+  }
+  if (fill.type === 'pattern' && fill.pattern === 'solid' && fill.fgColor) {
+    const bg = excelArgbToCss(fill.fgColor.argb || fill.fgColor.rgb);
+    if (bg) css.push(`background:${bg}`);
+  }
+
+  const h = alignment.horizontal;
+  if (h === 'center') css.push('text-align:center');
+  else if (h === 'right') css.push('text-align:right');
+  else if (h === 'left') css.push('text-align:left');
+  else css.push('text-align:center');
+
+  if (alignment.vertical === 'top') css.push('vertical-align:top');
+  else if (alignment.vertical === 'bottom') css.push('vertical-align:bottom');
+  else css.push('vertical-align:middle');
+
+  if (alignment.wrapText) css.push('white-space:pre-wrap');
+  else css.push('white-space:pre');
+
+  if (alignment.textRotation) css.push(`transform:rotate(${Number(alignment.textRotation)}deg)`);
+
+  const borders = [
+    ['top','border-top'], ['right','border-right'], ['bottom','border-bottom'], ['left','border-left']
+  ];
+  for (const [side, prop] of borders) {
+    const b = excelSideCss(border[side]);
+    if (b) css.push(`${prop}:${b}`);
+  }
+
+  return css.join(';');
+}
+
 async function renderExcelStyleView() {
   try {
-    // 預覽直接讀取「真正準備匯出的 XLSX」，不再讓 ExcelJS 重新寫回範本。
+    // 預覽直接讀取「真正準備匯出的 XLSX」，所以資料、公式結果、合併儲存格都跟匯出檔走同一套來源。
     const buf = await buildManifestXlsx(currentLocationTab);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buf);
@@ -756,27 +849,33 @@ async function renderExcelStyleView() {
       }
     }
 
-    let html = '<tbody>';
+    // 依照 Excel 的欄寬建立 colgroup，讓預覽比例更接近真正的 Excel。
+    let colgroup = '<colgroup>';
+    for (let c = startCol; c <= endCol; c++) {
+      const width = ws.getColumn(c).width || 10;
+      colgroup += `<col style="width:${Math.max(24, Math.round(width * 7))}px">`;
+    }
+    colgroup += '</colgroup>';
+
+    let html = `<div class="excel-preview-page"><table class="excel-preview-real">${colgroup}<tbody>`;
     for (let r = startRow; r <= endRow; r++) {
       const row = ws.getRow(r);
-      html += '<tr>';
+      const rowHeight = row.height ? Math.max(16, row.height * 1.333) : 22;
+      html += `<tr style="height:${rowHeight}px">`;
       for (let c = startCol; c <= endCol; c++) {
         const key = `${r}-${c}`;
         if (skipSet.has(key)) continue;
         const cell = row.getCell(c);
-        let val = cell.value;
-        if (val && typeof val === 'object' && val.richText) val = val.richText.map(t => t.text).join('');
-        val = (val == null) ? '' : String(val);
+        const value = excelCellDisplayValue(cell);
         const span = spanMap[key];
         const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
         const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
-        const isHeaderRow = r <= 10;
-        const align = (c === 6 || c === 12) ? 'text-align:left' : 'text-align:center';
-        html += `<td${rowspanAttr}${colspanAttr} style="${align};white-space:pre-wrap;font-size:${isHeaderRow?'.62rem':'.66rem'}">${escapeHtml(val)}</td>`;
+        const style = excelCellInlineStyle(cell, row);
+        html += `<td${rowspanAttr}${colspanAttr} style="${style}">${escapeHtml(value)}</td>`;
       }
       html += '</tr>';
     }
-    html += '</tbody>';
+    html += '</tbody></table></div>';
     container.innerHTML = html;
   } catch (err) {
     document.getElementById('excel-preview-table').innerHTML =
