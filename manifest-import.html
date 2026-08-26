@@ -895,7 +895,13 @@ async function renderExcelStyleView() {
         const key = `${r}-${c}`;
         if (skipSet.has(key)) continue;
         const cell = row.getCell(c);
-        const value = excelCellDisplayValue(cell);
+        let value = excelCellDisplayValue(cell);
+        // J6 / L6 在 Excel 中是公式格；預覽不需要重新解析公式，
+        // 直接使用目前選船的「時間」即可。這只影響預覽，不會改變匯出檔。
+        if (r === 6 && (c === 10 || c === 12)) {
+          const previewMeta = manifestByLocation[currentLocationTab] || {};
+          if (previewMeta.arrivalDate) value = toRocDate(previewMeta.arrivalDate);
+        }
         const span = spanMap[key];
         const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
         const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
@@ -1159,10 +1165,10 @@ async function buildManifestXlsx(loc) {
   api.setFormula('J3','=建船資料檔!B9',meta.ship?.captain_name || '');
   api.setFormula('L3','=建船資料檔!B10',meta.registration || '');
   api.setFormula('F6','=建船資料檔!B11',meta.ship?.gross_net_tonnage || '');
-  api.setFormula('K6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
-  // 最新 Template 的繫泊時間位於 M6:P6 合併格，主格是 M6，並由 K6 帶入同一個時間。
-  // 因此預覽與匯出都要寫在合併儲存格的主格，不能寫到 J6/L6。
-  api.setFormula('M6','=K6',toRocDate(meta.arrivalDate));
+  // 目前正式 Template 的主格為 J6（預定到港時間）與 L6（繫泊時間）。
+  // 匯出維持 Template 原本公式位置，只更新公式快取結果。
+  api.setFormula('J6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
+  api.setFormula('L6','=J6',toRocDate(meta.arrivalDate));
 
   const blankCols=['A','B','C','D','E','H','I','J','K','P','S','T','U','V','W','X','Z','AA'];
   if (items.length<templateCount) {
