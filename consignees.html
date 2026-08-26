@@ -170,7 +170,13 @@ main { padding:16px; padding-bottom:90px }
     <div class="field">
       <label>收貨人名稱 *</label>
       <input type="text" id="nc-name" placeholder="需與 Excel「收货人」欄位完全一致">
-      <div class="field-hint">名稱需與原始 Excel 裡的「收货人」欄位完全相同，才能自動比對</div>
+      <div class="field-hint">英文名稱需與原始 Excel 裡的「收货人」欄位完全相同，才能自動比對</div>
+    </div>
+
+    <div class="field">
+      <label>中文全名</label>
+      <input type="text" id="nc-chinesename" placeholder="例如：捷豐國際物流股份有限公司">
+      <div class="field-hint">用於 T1「收貨人 (中/英文公司名稱)」的中文名稱</div>
     </div>
 
     <div class="field">
@@ -232,6 +238,12 @@ main { padding:16px; padding-bottom:90px }
     <div class="field">
       <label>收貨人名稱 *</label>
       <input type="text" id="ec-name">
+    </div>
+
+    <div class="field">
+      <label>中文全名</label>
+      <input type="text" id="ec-chinesename" placeholder="例如：捷豐國際物流股份有限公司">
+      <div class="field-hint">用於 T1「收貨人 (中/英文公司名稱)」的中文名稱</div>
     </div>
 
     <div class="field">
@@ -351,13 +363,14 @@ function groupData() {
   const map = {};
   rawRows.forEach(r => {
     if (!map[r.name]) {
-      map[r.name] = { name: r.name, address: r.address || '', taxId: r.tax_id || '', contactInfo: r.contact_info || '', shortName: r.short_name || '', locations: [] };
+      map[r.name] = { name: r.name, address: r.address || '', taxId: r.tax_id || '', contactInfo: r.contact_info || '', shortName: r.short_name || '', chineseName: r.chinese_name || '', locations: [] };
     }
     map[r.name].locations.push({ id: r.id, location: r.location, seal_start: r.seal_start, unit: r.unit });
     if (r.address) map[r.name].address = r.address;
     if (r.tax_id) map[r.name].taxId = r.tax_id;
     if (r.contact_info) map[r.name].contactInfo = r.contact_info;
     if (r.short_name) map[r.name].shortName = r.short_name;
+    if (r.chinese_name) map[r.name].chineseName = r.chinese_name;
   });
   grouped = Object.values(map);
 }
@@ -377,7 +390,8 @@ function render() {
     <div class="consignee-card">
       <div class="cc-header">
         <div style="flex:1;min-width:0">
-          <div class="cc-name">${escapeHtml(g.name)}</div>
+          <div class="cc-name">${escapeHtml(g.chineseName || g.name)}</div>
+          <div style="font-size:.75rem;color:#777;margin-top:2px">英文名稱：${escapeHtml(g.name)}</div>
           ${g.address ? `<div class="cc-address">${escapeHtml(g.address)}</div>` : '<div class="cc-address" style="color:#cc8800">尚未設定地址</div>'}
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:.72rem;color:#888888">
             ${g.shortName ? `<span>簡稱：<b style="color:#555">${escapeHtml(g.shortName)}</b></span>` : ''}
@@ -416,6 +430,7 @@ function closeDlg(id) {
 /* ══ ADD NEW CONSIGNEE (with first location) ══ */
 function openAddConsignee() {
   document.getElementById('nc-name').value = '';
+  document.getElementById('nc-chinesename').value = '';
   document.getElementById('nc-address').value = '';
   document.getElementById('nc-location').value = '';
   document.getElementById('nc-seal').value = '';
@@ -426,6 +441,7 @@ function openAddConsignee() {
 
 async function submitNewConsignee() {
   const name = document.getElementById('nc-name').value.trim();
+  const chineseName = document.getElementById('nc-chinesename').value.trim();
   const address = document.getElementById('nc-address').value.trim();
   const taxId = document.getElementById('nc-taxid').value.trim();
   const contactInfo = document.getElementById('nc-contact').value.trim();
@@ -451,7 +467,7 @@ async function submitNewConsignee() {
         'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
         'Content-Type': 'application/json', 'Prefer': 'return=minimal'
       },
-      body: JSON.stringify({ name, address, tax_id: taxId, contact_info: contactInfo, short_name: shortName, location, seal_start: parseInt(seal), unit })
+      body: JSON.stringify({ name, chinese_name: chineseName, address, tax_id: taxId, contact_info: contactInfo, short_name: shortName, location, seal_start: parseInt(seal), unit })
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -478,6 +494,7 @@ function openEditConsignee(name) {
   if (!g) return;
   editingLocName = name;
   document.getElementById('ec-name').value = g.name;
+  document.getElementById('ec-chinesename').value = g.chineseName || '';
   document.getElementById('ec-address').value = g.address;
   document.getElementById('ec-taxid').value = g.taxId || '';
   document.getElementById('ec-contact').value = g.contactInfo || '';
@@ -488,6 +505,7 @@ function openEditConsignee(name) {
 
 async function submitEditConsignee() {
   const newName = document.getElementById('ec-name').value.trim();
+  const newChineseName = document.getElementById('ec-chinesename').value.trim();
   const newAddress = document.getElementById('ec-address').value.trim();
   const newTaxId = document.getElementById('ec-taxid').value.trim();
   const newContact = document.getElementById('ec-contact').value.trim();
@@ -511,7 +529,7 @@ async function submitEditConsignee() {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ name: newName, address: newAddress, tax_id: newTaxId, contact_info: newContact, short_name: newShortName })
+        body: JSON.stringify({ name: newName, chinese_name: newChineseName, address: newAddress, tax_id: newTaxId, contact_info: newContact, short_name: newShortName })
       });
       if (!res.ok) throw new Error(await res.text());
     }
