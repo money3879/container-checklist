@@ -1079,6 +1079,84 @@ async function buildManifestXlsx(loc) {
     return {root,sheetData,rows,getRow,findCell,ensureCell,setValue,setFormula,clearValue};
   }
 
+  // ══ 其他工作表的動態筆數工具 ══
+  function cloneRow(sheetXml, sourceRowNum, newRowNum) {
+    const api = sheetApi(sheetXml);
+    const source = api.getRow(sourceRowNum);
+    if (!source) throw new Error(`找不到樣式來源第 ${sourceRowNum} 列`);
+    const clone = source.cloneNode(true);
+    clone.setAttribute('r', String(newRowNum));
+    for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
+      const oldRef = cell.getAttribute('r');
+      if (!oldRef) continue;
+      const p = splitRef(oldRef);
+      cell.setAttribute('r', `${p.col}${newRowNum}`);
+    }
+    return clone;
+  }
+
+  function mergeRefsForRows(sheetXml, minRow, maxRow) {
+    const mergeCellsEl = sheetXml.documentElement.getElementsByTagNameNS(NS,'mergeCells')[0];
+    if (!mergeCellsEl) return [];
+    return Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+      .map(mc => mc.getAttribute('ref'))
+      .filter(ref => {
+        const nums = (String(ref).match(/\d+/g) || []).map(Number);
+        return nums.length && Math.min(...nums) >= minRow && Math.max(...nums) <= maxRow;
+      });
+  }
+
+  function shiftRowsAndMerges(sheetXml, startRow, delta) {
+    if (!delta) return;
+    const root = sheetXml.documentElement;
+    const sheetData = root.getElementsByTagNameNS(NS,'sheetData')[0];
+    const rows = Array.from(sheetData.getElementsByTagNameNS(NS,'row'))
+      .filter(r => r.parentNode === sheetData)
+      .sort((a,b) => Number(b.getAttribute('r')) - Number(a.getAttribute('r')));
+    for (const row of rows) {
+      const n = Number(row.getAttribute('r'));
+      if (n < startRow) continue;
+      row.setAttribute('r', String(n + delta));
+      for (const cell of Array.from(row.getElementsByTagNameNS(NS,'c'))) {
+        const ref = cell.getAttribute('r');
+        if (!ref) continue;
+        const p = splitRef(ref);
+        cell.setAttribute('r', `${p.col}${n + delta}`);
+      }
+    }
+    const mergeCellsEl = root.getElementsByTagNameNS(NS,'mergeCells')[0];
+    if (mergeCellsEl) {
+      for (const mc of Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))) {
+        const ref = mc.getAttribute('ref');
+        const nums = (String(ref).match(/\d+/g) || []).map(Number);
+        if (!nums.length || Math.min(...nums) < startRow) continue;
+        mc.setAttribute('ref', String(ref).replace(/(\d+)/g, m => String(Number(m) + delta)));
+      }
+      mergeCellsEl.setAttribute('count', String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
+    }
+    const dimension = root.getElementsByTagNameNS(NS,'dimension')[0];
+    if (dimension) {
+      const ref = dimension.getAttribute('ref');
+      if (ref) dimension.setAttribute('ref', ref.replace(/(\d+)$/, m => String(Number(m) + delta)));
+    }
+  }
+
+  function addMergeRefs(sheetXml, refs, rowDelta) {
+    const mergeCellsEl = sheetXml.documentElement.getElementsByTagNameNS(NS,'mergeCells')[0];
+    if (!mergeCellsEl) return;
+    for (const ref of refs) {
+      const shifted = String(ref).replace(/(\d+)/g, m => String(Number(m) + rowDelta));
+      const exists = Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+        .some(mc => mc.getAttribute('ref') === shifted);
+      if (!exists) {
+        const mc = sheetXml.createElementNS(NS,'mergeCell');
+        mc.setAttribute('ref', shifted);
+        mergeCellsEl.appendChild(mc);
+      }
+    }
+    mergeCellsEl.setAttribute('count', String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
+  }
+
   // ── 1. 建船資料檔：只更新資料來源格，其他工作表的公式全部保留。 ──
   const shipTarget=getSheetTarget('建船資料檔');
   const shipXml=parser.parseFromString(await zip.file(shipTarget).async('text'),'application/xml');
@@ -1275,18 +1353,116 @@ async function buildManifestXlsx(loc) {
     }
   }
 
-  zip.file(shipTarget,serializer.serializeToString(shipXml));
-  zip.file(sheetTarget,serializer.serializeToString(sheetXml));
-  zip.file('xl/workbook.xml',serializer.serializeToString(workbookXml));
-  zip.file('xl/_rels/workbook.xml.rels',serializer.serializeToString(relsXml));
+  // ═══════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════
+  // 第一階段：只處理 T1 快遞貨物訊息
+  // 其他工作表（准單、准單申請、貨櫃清單、運送單）完全不修改。
+  // T1 範本原本提供第 3~5 列共 3 筆資料；超過 3 筆時，
+  // 只在第 6 列固定區之前增加相同格式的資料列。
+  // ═══════════════════════════════════════════════════════════════════
+  async function loadSheetXmlByName(sheetName) {
+    const target = getSheetTarget(sheetName);
+    const xml = parser.parseFromString(await zip.file(target).async('text'),'application/xml');
+    return { target, xml, api: sheetApi(xml) };
+  }
 
-  const ctFile=zip.file('[Content_Types].xml');
-  if (ctFile) {
-    const ctXml=parser.parseFromString(await ctFile.async('text'),'application/xml');
-    for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
-      if (ov.getAttribute('PartName')==='/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+  const t1 = await loadSheetXmlByName('T1快遞貨物訊息0638s');
+  const t1Start = 3;
+  const t1TemplateCount = 3;
+  const t1Extra = Math.max(0, items.length - t1TemplateCount);
+
+  if (t1Extra > 0) {
+    const footerStart = 6;
+    if (!t1.api.getRow(footerStart)) throw new Error('T1 範本找不到第 6 列，無法增加資料列');
+
+    // 把原本第 6 列以後的固定內容往下移，保留原本的樣式與合併設定。
+    shiftRowsAndMerges(t1.xml, footerStart, t1Extra);
+    const footerAfter = t1.api.getRow(footerStart + t1Extra);
+    if (!footerAfter) throw new Error('T1 固定區移動失敗');
+
+    const sourceRow = t1.api.getRow(5);
+    if (!sourceRow) throw new Error('T1 範本找不到第 5 列資料樣板');
+    const sheetDataEl = t1.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
+
+    for (let i = 0; i < t1Extra; i++) {
+      const newRow = 6 + i;
+      const clone = sourceRow.cloneNode(true);
+      clone.setAttribute('r', String(newRow));
+
+      for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
+        const oldRef = cell.getAttribute('r');
+        if (!oldRef) continue;
+        const ref = splitRef(oldRef);
+        cell.setAttribute('r', `${ref.col}${newRow}`);
+
+        const f = cell.getElementsByTagNameNS(NS,'f')[0];
+        if (f) {
+          // 第 5 列原本引用艙單第 18 列；新列依序引用 19、20……。
+          f.textContent = f.textContent.replace(/([A-Z]{1,3})18\b/g, (_, col) => `${col}${16 + (newRow - t1Start)}`);
+          for (const v of Array.from(cell.getElementsByTagNameNS(NS,'v'))) cell.removeChild(v);
+          const v = t1.xml.createElementNS(NS,'v');
+          v.textContent = '';
+          cell.appendChild(v);
+        } else {
+          while (cell.firstChild) cell.removeChild(cell.firstChild);
+          cell.removeAttribute('t');
+        }
+      }
+      sheetDataEl.insertBefore(clone, footerAfter);
     }
-    zip.file('[Content_Types].xml',serializer.serializeToString(ctXml));
+  }
+
+  // T1 每一筆都依照艙單資料列重新設定公式／內容。
+  for (let i = 0; i < items.length; i++) {
+    const r = t1Start + i;
+    const mrow = 16 + i;
+    const it = items[i];
+
+    t1.api.setFormula(`A${r}`, `=進口艙單印1份!B${mrow}`, it.billNo || '');
+    t1.api.setFormula(`B${r}`, `=進口艙單印1份!A${mrow}`, it.sealNo || '');
+    t1.api.setFormula(`D${r}`, `=進口艙單印1份!E${mrow}`, it.trackNo || '');
+
+    // E 欄原始 Template 是引用貨櫃清單；本階段不修改其資料來源，
+    // 等第四階段處理貨櫃清單時再同步處理。
+    const cargoRow = 9 + i * 2;
+    t1.api.setFormula(`E${r}`, `='貨櫃清單0638s-1份'!J${cargoRow}`, '');
+
+    t1.api.setValue(`F${r}`, it.consigneeName || '');
+    t1.api.setValue(`G${r}`, it.taxId || '');
+    t1.api.setValue(`H${r}`, '');
+    t1.api.setValue(`I${r}`, loc);
+    t1.api.setFormula(`J${r}`, `=IF(進口艙單印1份!U${mrow}="45G1","40HQ","")`, '');
+    t1.api.setFormula(`K${r}`, `=進口艙單印1份!T${mrow}`, it.sealNumRaw || '');
+  }
+
+  // T1 原本的篩選範圍 A2:A4 也跟著資料筆數延伸。
+  for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
+    if (dn.getAttribute('name') === '_xlnm._FilterDatabase' && Number(dn.getAttribute('localSheetId')) === 2) {
+      dn.textContent = `T1快遞貨物訊息0638s!$A$2:$A$${2 + items.length}`;
+    }
+  }
+
+  const t1Dimension = t1.xml.documentElement.getElementsByTagNameNS(NS,'dimension')[0];
+  if (t1Dimension) {
+    const old = t1Dimension.getAttribute('ref');
+    const match = old && old.match(/^(.*:.*?)(\d+)$/);
+    if (match) t1Dimension.setAttribute('ref', `${match[1]}${Math.max(17, 5 + t1Extra)}`);
+  }
+
+  // 第一階段只寫回 T1、建船資料檔與艙單；不碰其他工作表。
+  zip.file(t1.target, serializer.serializeToString(t1.xml));
+  zip.file(shipTarget, serializer.serializeToString(shipXml));
+  zip.file(sheetTarget, serializer.serializeToString(sheetXml));
+  zip.file('xl/workbook.xml', serializer.serializeToString(workbookXml));
+  zip.file('xl/_rels/workbook.xml.rels', serializer.serializeToString(relsXml));
+
+  const ctFile = zip.file('[Content_Types].xml');
+  if (ctFile) {
+    const ctXml = parser.parseFromString(await ctFile.async('text'),'application/xml');
+    for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
+      if (ov.getAttribute('PartName') === '/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+    }
+    zip.file('[Content_Types].xml', serializer.serializeToString(ctXml));
   }
 
   return await zip.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
