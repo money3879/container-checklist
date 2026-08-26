@@ -495,21 +495,41 @@ function toRocDate(isoDate) {
 // 產生 Excel 前再轉回 ISO，讓既有的資料處理流程維持不變。
 function rocToIsoDate(value) {
   const raw = String(value || '').trim().replace(/[.-]/g, '/');
-  const m = raw.match(/^(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})$/);
-  if (!m) return '';
-  const year = Number(m[1]) + 1911;
-  const month = Number(m[2]);
-  const day = Number(m[3]);
+  if (!raw) return '';
+
+  let m = raw.match(/^(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})$/);
+  let year, month, day;
+
+  if (m) {
+    // 已輸入民國年月日，例如 115/08/25
+    year = Number(m[1]) + 1911;
+    month = Number(m[2]);
+    day = Number(m[3]);
+  } else {
+    // 也允許像 Excel 一樣只輸入月/日，例如 8/25；年份自動使用今年。
+    m = raw.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+    if (!m) return '';
+    year = new Date().getFullYear();
+    month = Number(m[1]);
+    day = Number(m[2]);
+  }
+
   const dt = new Date(year, month - 1, day);
   if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return '';
   return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 }
 
 function formatRocDateInput(el) {
-  let v = el.value.replace(/\D/g, '').slice(0, 7);
-  if (v.length > 3) v = v.slice(0,3) + '/' + v.slice(3);
-  if (v.length > 6) v = v.slice(0,6) + '/' + v.slice(6);
-  el.value = v;
+  let raw = el.value.replace(/\D/g, '').slice(0, 7);
+  // 讓 8/25、08/25 這類輸入保留為月/日，blur 時再補今年與民國年。
+  if (raw.length <= 4) {
+    if (raw.length > 2) raw = raw.slice(0,2) + '/' + raw.slice(2);
+    el.value = raw;
+    return;
+  }
+  // 3 位民國年 + 月日，例如 1150825 -> 115/08/25
+  raw = raw.slice(0,3) + '/' + raw.slice(3,5) + '/' + raw.slice(5,7);
+  el.value = raw.replace(/\/$/, '');
 }
 
 function normalizeRocDateInput(el) {
@@ -518,7 +538,7 @@ function normalizeRocDateInput(el) {
     el.setCustomValidity('');
     return;
   }
-  el.setCustomValidity(iso ? '' : '請輸入有效的民國日期，例如 115/08/25');
+  el.setCustomValidity(iso ? '' : '請輸入有效日期，例如 8/25 或 115/08/25');
   if (iso) el.value = toRocDate(iso);
 }
 
@@ -656,7 +676,7 @@ function generatePreview() {
 
   // 儲存共用資訊
   const ship = ships.find(s => s.id === shipId);
-  window._manifestMeta = { ship, voyage, registration, arrivalDate, mooringDate };
+  window._manifestMeta = { ship, voyage, registration, arrivalDate, mooringDate, arrivalRoc: toRocDate(arrivalDate), mooringRoc: toRocDate(mooringDate) };
 
   currentLocationTab = Object.keys(manifestByLocation)[0];
   renderLocationTabs();
@@ -899,8 +919,8 @@ async function renderExcelStyleView() {
         // J6 / L6 在 Excel 中是公式格；預覽不需要重新解析公式，
         // 直接使用目前選船的「時間」即可。這只影響預覽，不會改變匯出檔。
         if (r === 6 && (c === 10 || c === 12)) {
-          const previewMeta = manifestByLocation[currentLocationTab] || {};
-          if (previewMeta.arrivalDate) value = toRocDate(previewMeta.arrivalDate);
+          const previewMeta = window._manifestMeta || {};
+          if (previewMeta.arrivalRoc) value = previewMeta.arrivalRoc;
         }
         const span = spanMap[key];
         const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
