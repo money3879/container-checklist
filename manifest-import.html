@@ -255,11 +255,11 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
     <div class="field-row">
       <div class="field">
         <label>時間 *</label>
-        <input type="text" id="f-arrival-date" class="roc-date-input" inputmode="numeric" maxlength="9" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
+        <input type="text" id="f-arrival-date" class="roc-date-input" inputmode="numeric" maxlength="10" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
       </div>
       <div class="field">
         <label>申請日期 *</label>
-        <input type="text" id="f-mooring-date" class="roc-date-input" inputmode="numeric" maxlength="9" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
+        <input type="text" id="f-mooring-date" class="roc-date-input" inputmode="numeric" maxlength="10" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
       </div>
     </div>
   </div>
@@ -494,52 +494,66 @@ function toRocDate(isoDate) {
 // 網站日期直接使用民國年顯示，例如 115/08/25。
 // 產生 Excel 前再轉回 ISO，讓既有的資料處理流程維持不變。
 function rocToIsoDate(value) {
-  const raw = String(value || '').trim().replace(/[.-]/g, '/');
+  const raw = String(value || '').trim().replace(/\./g, '/').replace(/\s+/g, '');
   if (!raw) return '';
 
-  let m = raw.match(/^(\d{2,3})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})$/);
+  const parts = raw.split('/').filter(Boolean);
   let year, month, day;
 
-  if (m) {
-    // 已輸入民國年月日，例如 115/08/25
-    year = Number(m[1]) + 1911;
-    month = Number(m[2]);
-    day = Number(m[3]);
-  } else {
-    // 也允許像 Excel 一樣只輸入月/日，例如 8/25；年份自動使用今年。
-    m = raw.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
-    if (!m) return '';
+  if (parts.length === 2) {
+    // M/D 或 MM/DD：年份自動使用目前西元年。
     year = new Date().getFullYear();
-    month = Number(m[1]);
-    day = Number(m[2]);
+    month = Number(parts[0]);
+    day = Number(parts[1]);
+  } else if (parts.length === 3) {
+    // 民國年/月/日，例如 115/8/25 或 115/08/25。
+    const y = Number(parts[0]);
+    if (!/^\d{3,4}$/.test(parts[0])) return '';
+    year = y + 1911;
+    month = Number(parts[1]);
+    day = Number(parts[2]);
+  } else {
+    return '';
   }
 
+  if (!Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) return '';
+
+  // 嚴格驗證日期，避免 8/32、2/31 這類輸入被 JS 自動推進到下一個月。
   const dt = new Date(year, month - 1, day);
   if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return '';
+
   return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 }
 
 function formatRocDateInput(el) {
-  let raw = el.value.replace(/\D/g, '').slice(0, 7);
-  // 讓 8/25、08/25 這類輸入保留為月/日，blur 時再補今年與民國年。
-  if (raw.length <= 4) {
-    if (raw.length > 2) raw = raw.slice(0,2) + '/' + raw.slice(2);
-    el.value = raw;
-    return;
+  // 輸入過程只限制字元，不自動插入斜線，避免輸入 8/25 時被重新切割成 82/5。
+  const before = el.value;
+  const cleaned = before.replace(/[^0-9/.]/g, '');
+  if (before !== cleaned) {
+    const pos = el.selectionStart || cleaned.length;
+    el.value = cleaned;
+    try { el.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length)); } catch (_) {}
   }
-  // 3 位民國年 + 月日，例如 1150825 -> 115/08/25
-  raw = raw.slice(0,3) + '/' + raw.slice(3,5) + '/' + raw.slice(5,7);
-  el.value = raw.replace(/\/$/, '');
+  el.setCustomValidity('');
 }
 
 function normalizeRocDateInput(el) {
-  const iso = rocToIsoDate(el.value);
-  if (!el.value.trim()) {
+  const raw = el.value.trim();
+  if (!raw) {
     el.setCustomValidity('');
     return;
   }
-  el.setCustomValidity(iso ? '' : '請輸入有效日期，例如 8/25 或 115/08/25');
-  if (iso) el.value = toRocDate(iso);
+
+  const iso = rocToIsoDate(raw);
+  if (!iso) {
+    el.setCustomValidity('日期格式不正確，請重新輸入，例如 8/25、08/25、8.25、08.25 或 115/08/25');
+    el.reportValidity();
+    return;
+  }
+
+  // 正確日期一律統一成民國年兩位月日：115/08/25。
+  el.value = toRocDate(iso);
+  el.setCustomValidity('');
 }
 
 /* ══ 核心：產生艙單資料（依卸存地分組） ══ */
