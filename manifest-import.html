@@ -1452,8 +1452,105 @@ async function buildManifestXlsx(loc) {
     if (match) t1Dimension.setAttribute('ref', `${match[1]}${Math.max(17, 5 + t1Extra)}`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 第二階段：只處理「准單(紅紙)-2份」
+  // 依艙單筆數增加貨物資料列；公式完全沿用最新 Template 的寫法，
+  // 只把公式中的艙單資料列號從 16/17/18 往後延伸。
+  // Template 原本資料列為 22~24，25 列起為固定內容。
+  // ═══════════════════════════════════════════════════════════════════
+  const red = await loadSheetXmlByName('准單(紅紙)-2份');
+  const redStart = 22;
+  const redTemplateCount = 3;
+  const redExtra = Math.max(0, items.length - redTemplateCount);
+  const redFooterStart = 25;
+
+  if (redExtra > 0) {
+    if (!red.api.getRow(redFooterStart)) throw new Error('准單（紅紙）範本找不到第 25 列固定內容');
+
+    // 將第25列以後固定內容整體往下移，包含原有合併儲存格。
+    shiftRowsAndMerges(red.xml, redFooterStart, redExtra);
+    const redFooterAfter = red.api.getRow(redFooterStart + redExtra);
+    if (!redFooterAfter) throw new Error('准單（紅紙）固定內容移動失敗');
+
+    const sourceRow = red.api.getRow(24);
+    if (!sourceRow) throw new Error('准單（紅紙）範本找不到第 24 列資料樣板');
+    const sheetDataEl = red.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
+    if (!sheetDataEl) throw new Error('准單（紅紙）找不到 sheetData');
+
+    const mergeCellsEl = red.xml.documentElement.getElementsByTagNameNS(NS,'mergeCells')[0];
+    const originalMerges = mergeCellsEl
+      ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x => x.getAttribute('ref'))
+      : [];
+    const dataMerges = originalMerges.filter(ref => {
+      const nums = (String(ref).match(/\d+/g) || []).map(Number);
+      return nums.length && Math.min(...nums) === 24 && Math.max(...nums) === 24;
+    });
+
+    for (let i = 0; i < redExtra; i++) {
+      const newRow = 25 + i;
+      const clone = sourceRow.cloneNode(true);
+      clone.setAttribute('r', String(newRow));
+
+      for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
+        const oldRef = cell.getAttribute('r');
+        if (!oldRef) continue;
+        const ref = splitRef(oldRef);
+        cell.setAttribute('r', `${ref.col}${newRow}`);
+
+        const f = cell.getElementsByTagNameNS(NS,'f')[0];
+        if (f) {
+          // Template 第24列公式引用艙單第18列；第25列起依序引用19、20……。
+          const manifestRow = 16 + (newRow - redStart);
+          f.textContent = f.textContent.replace(
+            /進口艙單印1份!([A-Z]{1,3})18\b/g,
+            (_, col) => `進口艙單印1份!${col}${manifestRow}`
+          );
+          // 讓 Excel 重新計算；避免保留舊的公式快取。
+          for (const v of Array.from(cell.getElementsByTagNameNS(NS,'v'))) cell.removeChild(v);
+          const v = red.xml.createElementNS(NS,'v');
+          v.textContent = '';
+          cell.appendChild(v);
+        }
+      }
+      sheetDataEl.insertBefore(clone, redFooterAfter);
+
+      if (mergeCellsEl) {
+        for (const ref of dataMerges) {
+          const shifted = ref.replace(/(\d+)/g, m => String(Number(m) + i + 1));
+          const exists = Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+            .some(mc => mc.getAttribute('ref') === shifted);
+          if (!exists) {
+            const mc = red.xml.createElementNS(NS,'mergeCell');
+            mc.setAttribute('ref', shifted);
+            mergeCellsEl.appendChild(mc);
+          }
+        }
+      }
+    }
+    if (mergeCellsEl) mergeCellsEl.setAttribute('count', String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
+  }
+
+  // 逐筆確認准單（紅紙）22列起的公式，完全按照 Template 原本公式模式，
+  // 只將艙單來源列號由16、17、18依筆數延伸。
+  for (let i = 0; i < items.length; i++) {
+    const r = redStart + i;
+    const mrow = 16 + i;
+    red.api.setFormula(`A${r}`, `=進口艙單印1份!B${mrow}`, '');
+    red.api.setFormula(`C${r}`, `=進口艙單印1份!T${mrow}`, '');
+    red.api.setFormula(`F${r}`, `=進口艙單印1份!C${mrow}&進口艙單印1份!D${mrow}`, '');
+    red.api.setFormula(`H${r}`, `=進口艙單印1份!I${mrow}`, '');
+    red.api.setFormula(`I${r}`, `=進口艙單印1份!E${mrow}`, '');
+  }
+
+  const redDimension = red.xml.documentElement.getElementsByTagNameNS(NS,'dimension')[0];
+  if (redDimension && redDimension.getAttribute('ref')) {
+    const old = redDimension.getAttribute('ref');
+    redDimension.setAttribute('ref', old.replace(/(\d+)$/, m => String(Number(m) + redExtra)));
+  }
+
   // 第一階段只寫回 T1、建船資料檔與艙單；不碰其他工作表。
   zip.file(t1.target, serializer.serializeToString(t1.xml));
+  zip.file(red.target, serializer.serializeToString(red.xml));
   zip.file(shipTarget, serializer.serializeToString(shipXml));
   zip.file(sheetTarget, serializer.serializeToString(sheetXml));
   zip.file('xl/workbook.xml', serializer.serializeToString(workbookXml));
