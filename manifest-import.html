@@ -659,6 +659,7 @@ function generatePreview() {
       billNo, sealNo, pieces, unit,
       trackNo: intlCode, cargoDesc, weight,
       consigneeName, consigneeShort: match.short_name || '', consigneeInfo,
+      chineseName: match.chinese_name || '', contactInfo: match.contact_info || '',
       taxId: match.tax_id || '',
       shortName: match.short_name || '',
       mappedType, sealNumRaw,
@@ -1413,6 +1414,7 @@ async function buildManifestXlsx(loc) {
   }
 
   // T1 每一筆都依照艙單資料列重新設定公式／內容。
+  // F=中文全名 + 英文名稱；H=收貨人管理的聯絡人資訊；K=艙單 P 欄封條。
   for (let i = 0; i < items.length; i++) {
     const r = t1Start + i;
     const mrow = 16 + i;
@@ -1427,12 +1429,13 @@ async function buildManifestXlsx(loc) {
     const cargoRow = 9 + i * 2;
     t1.api.setFormula(`E${r}`, `='貨櫃清單0638s-1份'!J${cargoRow}`, '');
 
-    t1.api.setValue(`F${r}`, it.consigneeName || '');
+    const consigneeDisplayName = [it.chineseName, it.consigneeName].filter(Boolean).join('\n');
+    t1.api.setValue(`F${r}`, consigneeDisplayName);
     t1.api.setValue(`G${r}`, it.taxId || '');
-    t1.api.setValue(`H${r}`, '');
+    t1.api.setValue(`H${r}`, it.contactInfo || '');
     t1.api.setValue(`I${r}`, loc);
     t1.api.setFormula(`J${r}`, `=IF(進口艙單印1份!U${mrow}="45G1","40HQ","")`, '');
-    t1.api.setFormula(`K${r}`, `=進口艙單印1份!T${mrow}`, it.sealNumRaw || '');
+    t1.api.setFormula(`K${r}`, `=進口艙單印1份!P${mrow}`, it.sealNumRaw || '');
   }
 
   // T1 原本的篩選範圍 A2:A4 也跟著資料筆數延伸。
