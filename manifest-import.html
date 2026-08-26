@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="zh-TW" style="background:#ffffff;color-scheme:light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>匯入並產生艙單</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root {
+  --cyan:  #1a7bbf;
+  --amber: #c07000;
+  --red:   #cc2222;
+  --green: #2e9e5b;
+  --txt:   #111111;
+  --txt2:  #444444;
+  --mono: 'SF Mono','Menlo','Consolas','Courier New',monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent }
+html, body { overflow-x:hidden; font-size:16px }
+body {
+  background:#ffffff !important; color:#111111 !important;
+  font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;
+  color-scheme:light;
+}
+
+#top {
+  position:sticky; top:0; z-index:200;
+  background:#f2f4f6; border-bottom:2px solid var(--cyan);
+  padding:10px 14px;
+}
+.bar1 { display:flex; align-items:center; justify-content:space-between; gap:8px }
+.app-title { font-size:.95rem; font-weight:900; letter-spacing:2px; color:#1a5a8a }
+.tbtn {
+  border:1px solid rgba(0,0,0,.2); border-radius:6px; padding:7px 12px;
+  font-size:.78rem; font-weight:700; cursor:pointer; font-family:inherit;
+  background:#ffffff; color:#333333; white-space:nowrap;
+}
+
+main { padding:16px; padding-bottom:40px; max-width:960px; margin:0 auto }
+
+.step-section {
+  background:#ffffff; border:1px solid rgba(0,0,0,.12); border-radius:12px;
+  padding:16px; margin-bottom:14px;
+}
+.step-header { display:flex; align-items:center; gap:8px; margin-bottom:14px }
+.step-num {
+  width:24px; height:24px; border-radius:50%; background:var(--cyan); color:#fff;
+  font-size:.75rem; font-weight:800; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+.step-title { font-size:.88rem; font-weight:800; color:var(--txt) }
+
+.field { margin-bottom:12px }
+.field label {
+  display:block; font-size:.72rem; font-weight:700; color:#444444;
+  letter-spacing:.5px; margin-bottom:6px;
+}
+.field input, .field select {
+  width:100%; padding:10px 12px; border:1.5px solid rgba(0,0,0,.15);
+  border-radius:8px; font-size:.88rem; font-family:inherit; color:#111111;
+  outline:none; background:#ffffff;
+}
+.field input:focus, .field select:focus { border-color:var(--cyan) }
+.field-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px }
+.field-row .field { margin-bottom:0; min-width:0 }
+.field-row .field input { width:100%; min-width:0; box-sizing:border-box }
+.field-row .field input[type="date"] { font-size:.82rem; padding:10px 8px }
+
+@media (max-width:400px) {
+  .field-row {
+    grid-template-columns: minmax(0,46%) minmax(0,46%);
+    justify-content: space-between;
+    gap: 0;
+  }
+  .field input, .field select {
+    width:100%;
+    box-sizing:border-box;
+    font-size:.80rem;
+    padding-left:7px;
+    padding-right:7px;
+  }
+  .field-row .field input[type="date"] {
+    font-size:.68rem;
+    padding-left:4px;
+    padding-right:4px;
+  }
+}
+.field-hint { font-size:.68rem; color:#999999; margin-top:4px }
+
+.ship-preview {
+  background:#f8f9fa; border-radius:8px; padding:10px 12px; margin-top:8px;
+  font-size:.76rem; color:#555555; line-height:1.7; display:none;
+}
+.ship-preview.show { display:block }
+.ship-preview b { color:var(--cyan) }
+
+.loc-card {
+  border:1.5px solid rgba(0,0,0,.12); border-radius:10px; padding:12px;
+  margin-bottom:10px; background:#fafbfc;
+}
+.loc-card-row { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap }
+.loc-card-field { flex:1 1 160px; min-width:0 }
+.loc-card-field label {
+  display:block; font-size:.68rem; font-weight:700; color:#666666;
+  margin-bottom:5px; letter-spacing:.3px;
+}
+.loc-card-field input, .loc-card-field select {
+  width:100%; min-width:0; padding:9px 10px; border:1.5px solid rgba(0,0,0,.15);
+  border-radius:7px; font-size:.85rem; font-family:inherit; color:#111111;
+  outline:none; background:#ffffff; box-sizing:border-box;
+}
+.loc-card-field input:focus, .loc-card-field select:focus { border-color:var(--cyan) }
+.loc-remove-btn {
+  border:1.5px solid rgba(204,34,34,.3); background:#fdf0ef; color:var(--red);
+  font-size:.78rem; font-weight:700; cursor:pointer; padding:9px 14px;
+  border-radius:7px; white-space:nowrap; font-family:inherit; flex-shrink:0;
+}
+.loc-add-btn {
+  width:100%; padding:9px; border:1.5px dashed rgba(0,0,0,.2); border-radius:7px;
+  background:none; color:var(--cyan); font-size:.78rem; font-weight:700;
+  cursor:pointer; font-family:inherit; margin-top:4px;
+}
+
+.dzone {
+  border:2px dashed rgba(0,0,0,.15); border-radius:10px; padding:28px 16px;
+  text-align:center; cursor:pointer; transition:all .2s; margin-bottom:8px;
+}
+.dzone:hover, .dzone.drag-over { border-color:var(--cyan); background:rgba(26,123,191,.04) }
+.dzone .di { font-size:1.8rem; margin-bottom:6px }
+.dzone p { font-size:.8rem; color:#666666; margin:0 }
+.dzone strong { color:var(--cyan) }
+input[type="file"] { display:none }
+
+.file-loaded {
+  display:none; align-items:center; gap:10px; padding:12px 14px;
+  background:#eef7ee; border:1px solid rgba(46,158,91,.3); border-radius:8px;
+  font-size:.82rem; color:#1a7a3e; margin-bottom:8px;
+}
+.file-loaded.show { display:flex }
+
+.btn-primary {
+  width:100%; padding:13px; background:var(--cyan); color:#fff; border:none;
+  border-radius:8px; font-size:.9rem; font-weight:800; cursor:pointer; font-family:inherit;
+}
+.btn-primary:disabled { background:#cccccc; cursor:not-allowed }
+
+.error-box {
+  background:#fdf0ef; border:1px solid rgba(204,34,34,.3); border-radius:8px;
+  padding:12px 14px; margin-top:10px; font-size:.8rem; color:var(--red); line-height:1.6;
+  display:none;
+}
+.error-box.show { display:block }
+.error-box ul { margin:6px 0 0 18px }
+
+
+.excel-preview-wrap { overflow:auto; border:1px solid rgba(0,0,0,.14); border-radius:8px; background:#dfe3e8; padding:14px; }
+.excel-preview-page { display:inline-block; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.16); }
+.excel-preview-real { border-collapse:collapse; table-layout:fixed; font-family:Arial,"Noto Sans TC",sans-serif; background:#fff; }
+.excel-preview-real td { box-sizing:border-box; padding:1px 3px; overflow:hidden; line-height:1.15; }
+
+#preview-section { display:none }
+#preview-section.show { display:block }
+
+.loc-tabs { display:flex; gap:6px; margin-bottom:14px; overflow-x:auto; flex-wrap:wrap }
+.loc-tab {
+  padding:8px 14px; border-radius:8px; border:1.5px solid rgba(0,0,0,.15);
+  background:#ffffff; color:#555555; font-size:.8rem; font-weight:700;
+  cursor:pointer; white-space:nowrap; font-family:inherit;
+}
+.loc-tab.active { border-color:var(--cyan); background:rgba(26,123,191,.08); color:var(--cyan) }
+
+.view-toggle { display:flex; gap:6px; margin-bottom:14px }
+.view-btn {
+  flex:1; padding:9px; border:1.5px solid rgba(0,0,0,.15); border-radius:8px;
+  background:#ffffff; color:#555555; font-size:.78rem; font-weight:700;
+  cursor:pointer; font-family:inherit;
+}
+.view-btn.active { border-color:var(--cyan); background:rgba(26,123,191,.08); color:var(--cyan) }
+
+.preview-stats { display:flex; gap:16px; margin-bottom:12px; font-size:.82rem; color:#444444; flex-wrap:wrap }
+.preview-stats b { color:var(--cyan); font-size:1rem }
+
+.table-scroll { overflow-x:auto; border:1px solid rgba(0,0,0,.12); border-radius:8px }
+table.tbl-view { width:100%; border-collapse:collapse; font-size:.72rem; min-width:900px }
+table.tbl-view thead th {
+  background:#e8ecf0; color:#222222; font-weight:800; padding:8px 6px; text-align:left;
+  white-space:nowrap; border-bottom:2px solid var(--cyan); position:sticky; top:0;
+}
+table.tbl-view td {
+  padding:7px 6px; border-bottom:1px solid rgba(0,0,0,.08); color:#111111;
+  white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;
+}
+table.tbl-view tbody tr:nth-child(even) { background:#f8f9fa }
+.cell-mono { font-family:var(--mono) }
+.cell-wide { white-space:normal !important; max-width:280px }
+
+.excel-view-wrap { overflow-x:auto; border:1px solid rgba(0,0,0,.2); border-radius:4px }
+table.excel-view { border-collapse:collapse; font-size:.68rem; font-family:'PingFang TC','Microsoft JhengHei',var(--mono); min-width:1050px }
+table.excel-view td, table.excel-view th {
+  border:1px solid #666666; padding:5px 6px; white-space:pre-wrap; vertical-align:middle;
+  font-size:.66rem; text-align:center; line-height:1.4;
+}
+table.excel-view th { background:#e2e9f0; font-weight:700; text-align:center; font-size:.62rem }
+table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
+
+.export-bar { display:flex; gap:10px; margin-top:16px }
+.btn-export {
+  flex:1; padding:13px; background:var(--green); color:#fff; border:none;
+  border-radius:8px; font-size:.9rem; font-weight:800; cursor:pointer; font-family:inherit;
+}
+.btn-back {
+  padding:13px 18px; background:none; border:1px solid rgba(0,0,0,.2);
+  border-radius:8px; font-size:.85rem; color:#555555; cursor:pointer; font-family:inherit;
+}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div class="bar1">
+    <span class="app-title">📥 匯入並產生艙單</span>
+    <button class="tbtn" onclick="location.href='manifest.html'">← 返回艙單系統</button>
+  </div>
+</div>
+
+<main>
+
+  <div class="step-section">
+    <div class="step-header">
+      <div class="step-num">1</div>
+      <div class="step-title">船舶與航次資訊</div>
+    </div>
+
+    <div class="field">
+      <label>選擇一程船（從大陸進口）*</label>
+      <select id="f-ship-select" onchange="onShipSelect()">
+        <option value="">請選擇一程船…</option>
+      </select>
+      <div class="ship-preview" id="ship-preview"></div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>船隻掛號 *</label>
+        <input type="text" id="f-registration" placeholder="例如 15PAHD" oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <div class="field">
+        <label>航次 *</label>
+        <input type="text" id="f-voyage" placeholder="例如 260727">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>時間 *</label>
+        <input type="text" id="f-arrival-date" class="roc-date-input" inputmode="numeric" maxlength="10" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
+      </div>
+      <div class="field">
+        <label>申請日期 *</label>
+        <input type="text" id="f-mooring-date" class="roc-date-input" inputmode="numeric" maxlength="10" placeholder="例如 115/08/25" autocomplete="off" oninput="formatRocDateInput(this)" onblur="normalizeRocDateInput(this)">
+      </div>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div class="step-title">卸存地</div>
+    </div>
+    <div id="loc-list"></div>
+    <button class="loc-add-btn" onclick="addLocationInput()">＋ 新增卸存地</button>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div class="step-title">上傳原始 Excel</div>
+    </div>
+
+    <div class="dzone" id="dzone" onclick="document.getElementById('fi').click()"
+      ondragover="dOver(event)" ondragleave="dLeave()" ondrop="dDrop(event)">
+      <div class="di">📂</div>
+      <p>點此選檔案<br><strong>或拖曳 Excel 到此</strong></p>
+    </div>
+    <input type="file" id="fi" accept=".xlsx,.xls,.csv" onchange="fileSel(this)">
+
+    <div class="file-loaded" id="file-loaded">
+      <span>✅</span>
+      <span id="file-loaded-text"></span>
+    </div>
+  </div>
+
+  <button class="btn-primary" id="btn-generate" onclick="generatePreview()">產生艙單預覽</button>
+
+  <div class="error-box" id="error-box"></div>
+
+  <div id="preview-section">
+    <div class="step-section" style="margin-top:14px">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <div class="step-title">艙單預覽</div>
+      </div>
+
+      <div class="loc-tabs" id="loc-tabs"></div>
+
+      <div class="view-toggle">
+        <button class="view-btn active" id="view-btn-table" onclick="switchView('table')">📋 表格檢視</button>
+        <button class="view-btn" id="view-btn-excel" onclick="switchView('excel')">📑 艙單版面檢視</button>
+      </div>
+
+      <div class="preview-stats">
+        <span>共 <b id="stat-total">0</b> 筆貨物</span>
+        <span>艙號範圍 <b id="stat-range">—</b></span>
+      </div>
+
+      <div id="view-table">
+        <div class="table-scroll">
+          <table class="tbl-view">
+            <thead>
+              <tr>
+                <th>主提單號碼</th><th>艙單號碼</th><th>件數</th><th>單位</th>
+                <th>標記/追蹤號</th><th>貨名</th><th>毛重</th>
+                <th>收貨人簡稱</th><th>收貨人資訊</th>
+              </tr>
+            </thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="view-excel" style="display:none">
+        <div class="excel-view-wrap">
+          <table class="excel-view" id="excel-preview-table"></table>
+        </div>
+      </div>
+
+      <div class="export-bar">
+        <button class="btn-back" onclick="backToEdit()">← 返回修改</button>
+        <button class="btn-export" onclick="exportManifest()">📤 匯出目前卸存地的艙單 Excel</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const TEMPLATE_PATH = './template.xlsx';
+const SB_URL = 'https://ruziacdggdfyvlbcjnan.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1emlhY2RnZ2RmeXZsYmNqbmFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzE1OTEsImV4cCI6MjEwMDQ0NzU5MX0.3P7SzY2EfKtUTcuaBB0fMY0FOIdp_X3KmkfRnL8wuSg';
+
+(function checkAuth() {
+  const saved = localStorage.getItem('ctr-auth') || sessionStorage.getItem('ctr-auth');
+  if (!saved) { window.location.replace('index.html'); return; }
+  try {
+    const auth = JSON.parse(saved);
+    if (!auth || !auth.username) throw new Error('invalid');
+    window._currentUser = auth.username;
+  } catch(e) {
+    window.location.replace('index.html');
+  }
+})();
+
+let ships = [];
+let consignees = [];
+let uploadedRows = null;
+let manifestByLocation = {};
+let currentLocationTab = null;
+let currentView = 'table';
+
+const CONTAINER_TYPE_MAP = { '40HC': '45G1', '20GP': '22G1' };
+
+async function init() {
+  try {
+    const [shipsRes, consigneesRes] = await Promise.all([
+      fetch(`${SB_URL}/rest/v1/ships?select=*&order=ship_name.asc`, {
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+      }),
+      fetch(`${SB_URL}/rest/v1/consignees?select=*`, {
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+      })
+    ]);
+    ships = await shipsRes.json();
+    consignees = await consigneesRes.json();
+
+    const sel = document.getElementById('f-ship-select');
+    ships.filter(s => (s.ship_type || '一程船') === '一程船').forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.ship_name;
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    console.error('初始化載入失敗', e);
+  }
+  addLocationInput();
+}
+
+function onShipSelect() {
+  const id = document.getElementById('f-ship-select').value;
+  const preview = document.getElementById('ship-preview');
+  if (!id) { preview.classList.remove('show'); return; }
+  const s = ships.find(x => x.id === id);
+  if (!s) return;
+  preview.innerHTML = `
+    <div style="margin-bottom:4px">船舶呼號：<b>${s.call_sign || '—'}</b></div>
+    <div style="margin-bottom:4px">船長姓名：<b>${s.captain_name || '—'}</b></div>
+    <div>總/淨噸數：<b>${s.gross_net_tonnage || '—'}</b></div>`;
+  preview.classList.add('show');
+}
+
+let locCounter = 0;
+function addLocationInput(value) {
+  locCounter++;
+  const id = `loc-input-${locCounter}`;
+  const wrap = document.createElement('div');
+  wrap.className = 'loc-card';
+  wrap.id = `wrap-${id}`;
+
+  wrap.innerHTML = `
+    <div class="loc-card-row">
+      <div class="loc-card-field">
+        <label>卸存地</label>
+        <input type="text" id="${id}" placeholder="例如 KHH0638S" style="text-transform:uppercase" value="${value||''}">
+      </div>
+      <div class="loc-card-field">
+        <label>二程船（回台灣）</label>
+        <input type="text" id="${id}-ship2" placeholder="例如 大佑輪">
+      </div>
+      <button class="loc-remove-btn" onclick="removeLocationInput('${id}')">🗑 刪除</button>
+    </div>
+  `;
+  document.getElementById('loc-list').appendChild(wrap);
+}
+function removeLocationInput(id) {
+  const wrap = document.getElementById(`wrap-${id}`);
+  if (wrap) wrap.remove();
+}
+function getLocationInputs() {
+  const wraps = Array.from(document.querySelectorAll('.loc-card'));
+  return wraps.map(wrap => {
+    const locInput = wrap.querySelector('input[id]:not([id$="-ship2"])');
+    const ship2Input = wrap.querySelector('input[id$="-ship2"]');
+    return {
+      location: locInput.value.trim().toUpperCase(),
+      ship2Name: ship2Input.value.trim()
+    };
+  }).filter(x => x.location);
+}
+
+function dOver(e) { e.preventDefault(); document.getElementById('dzone').classList.add('drag-over'); }
+function dLeave() { document.getElementById('dzone').classList.remove('drag-over'); }
+function dDrop(e) { e.preventDefault(); dLeave(); if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); }
+function fileSel(inp) { if (inp.files[0]) readFile(inp.files[0]); }
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!json.length) { showError(['檔案沒有資料']); return; }
+      uploadedRows = json;
+      document.getElementById('file-loaded-text').textContent = `已載入 ${file.name}（共 ${json.length} 筆資料）`;
+      document.getElementById('file-loaded').classList.add('show');
+    } catch(err) {
+      showError(['檔案讀取失敗，請確認格式是否正確']);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function showError(msgs) {
+  const box = document.getElementById('error-box');
+  box.innerHTML = '⚠️ 無法產生艙單：<ul>' + msgs.map(m => `<li>${m}</li>`).join('') + '</ul>';
+  box.classList.add('show');
+}
+function clearError() { document.getElementById('error-box').classList.remove('show'); }
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+function toRocDate(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return `${y - 1911}/${m}/${d}`;
+}
+
+// 網站日期直接使用民國年顯示，例如 115/08/25。
+// 產生 Excel 前再轉回 ISO，讓既有的資料處理流程維持不變。
+function rocToIsoDate(value) {
+  const raw = String(value || '').trim().replace(/\./g, '/').replace(/\s+/g, '');
+  if (!raw) return '';
+
+  const parts = raw.split('/').filter(Boolean);
+  let year, month, day;
+
+  if (parts.length === 2) {
+    // M/D 或 MM/DD：年份自動使用目前西元年。
+    year = new Date().getFullYear();
+    month = Number(parts[0]);
+    day = Number(parts[1]);
+  } else if (parts.length === 3) {
+    // 民國年/月/日，例如 115/8/25 或 115/08/25。
+    const y = Number(parts[0]);
+    if (!/^\d{3,4}$/.test(parts[0])) return '';
+    year = y + 1911;
+    month = Number(parts[1]);
+    day = Number(parts[2]);
+  } else {
+    return '';
+  }
+
+  if (!Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) return '';
+
+  // 嚴格驗證日期，避免 8/32、2/31 這類輸入被 JS 自動推進到下一個月。
+  const dt = new Date(year, month - 1, day);
+  if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) return '';
+
+  return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+function formatRocDateInput(el) {
+  // 輸入過程只限制字元，不自動插入斜線，避免輸入 8/25 時被重新切割成 82/5。
+  const before = el.value;
+  const cleaned = before.replace(/[^0-9/.]/g, '');
+  if (before !== cleaned) {
+    const pos = el.selectionStart || cleaned.length;
+    el.value = cleaned;
+    try { el.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length)); } catch (_) {}
+  }
+  el.setCustomValidity('');
+}
+
+function normalizeRocDateInput(el) {
+  const raw = el.value.trim();
+  if (!raw) {
+    el.setCustomValidity('');
+    return;
+  }
+
+  const iso = rocToIsoDate(raw);
+  if (!iso) {
+    el.setCustomValidity('日期格式不正確，請重新輸入，例如 8/25、08/25、8.25、08.25 或 115/08/25');
+    el.reportValidity();
+    return;
+  }
+
+  // 正確日期一律統一成民國年兩位月日：115/08/25。
+  el.value = toRocDate(iso);
+  el.setCustomValidity('');
+}
+
+/* ══ 核心：產生艙單資料（依卸存地分組） ══ */
+function generatePreview() {
+  clearError();
+
+  const shipId = document.getElementById('f-ship-select').value;
+  const voyage = document.getElementById('f-voyage').value.trim();
+  const registration = document.getElementById('f-registration').value.trim().toUpperCase();
+  const arrivalInput = document.getElementById('f-arrival-date').value;
+  const mooringInput = document.getElementById('f-mooring-date').value;
+  const arrivalDate = rocToIsoDate(arrivalInput);
+  const mooringDate = rocToIsoDate(mooringInput);
+  const locationList = getLocationInputs();
+
+  const missing = [];
+  if (!shipId) missing.push('請選擇一程船');
+  if (!voyage) missing.push('請輸入航次');
+  if (!registration) missing.push('請輸入船隻掛號');
+  if (!arrivalDate) missing.push('請輸入時間');
+  if (!mooringDate) missing.push('請輸入申請日期');
+  if (!locationList.length) missing.push('請至少輸入一個卸存地');
+  locationList.forEach(l => {
+    if (!l.ship2Name) missing.push(`卸存地「${l.location}」尚未輸入二程船`);
+  });
+  if (!uploadedRows) missing.push('請上傳原始 Excel 檔案');
+  if (missing.length) { showError(missing); return; }
+
+  const sample = uploadedRows[0];
+  const keys = Object.keys(sample);
+  const findKey = (patterns) => keys.find(k => patterns.some(p => k.includes(p)));
+
+  const kBillNo     = findKey(['提单号', '提單號']);
+  const kConsignee  = findKey(['收货人', '收貨人']);
+  const kIntlCode   = findKey(['国际码', '國際碼']);
+  const kSeal       = findKey(['铅封号', '鉛封號']);
+  const kPiecesTW   = findKey(['台湾件数', '台灣件數']);
+  const kWeightTW   = findKey(['台湾重量', '台灣重量']);
+  const kPieces     = findKey(['件数', '件數']);
+  const kWeightRaw  = findKey(['毛重']);
+  const kType       = findKey(['柜型', '櫃型']);
+  const kLocation   = findKey(['卸存地']);
+
+  const fieldErrors = [];
+  if (!kBillNo)    fieldErrors.push('找不到「提单号」欄位');
+  if (!kConsignee) fieldErrors.push('找不到「收货人」欄位');
+  if (!kIntlCode)  fieldErrors.push('找不到「国际码」欄位');
+  if (!kSeal)      fieldErrors.push('找不到「铅封号」欄位');
+  if (!kType)      fieldErrors.push('找不到「柜型」欄位');
+  if (!kLocation)  fieldErrors.push('找不到「卸存地」欄位（無法依卸存地過濾資料）');
+  if (fieldErrors.length) { showError(fieldErrors); return; }
+
+  // 依提單號排序（先排序，確保艙號分配順序正確）
+  const sorted = [...uploadedRows].sort((a, b) => {
+    const av = String(a[kBillNo] || ''), bv = String(b[kBillNo] || '');
+    return av.localeCompare(bv, undefined, { numeric: true });
+  });
+
+  const notFound = new Set();
+  manifestByLocation = {};
+
+  const locationCodes = locationList.map(l => l.location);
+  locationList.forEach(l => {
+    manifestByLocation[l.location] = { items: [], ship2Name: l.ship2Name };
+  });
+
+  const sealCounter = {}; // key: `${consigneeName}|${location}`
+
+  for (const row of sorted) {
+    const rowLocation = String(row[kLocation] || '').trim().toUpperCase();
+    if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
+
+    const consigneeName = String(row[kConsignee] || '').trim();
+    const match = consignees.find(c => c.name.trim() === consigneeName && c.location === rowLocation);
+
+    if (!match) {
+      notFound.add(`${consigneeName}（卸存地：${rowLocation}）`);
+      continue;
+    }
+
+    const counterKey = `${consigneeName}|${rowLocation}`;
+    if (!(counterKey in sealCounter)) {
+      sealCounter[counterKey] = match.seal_start;
+    } else {
+      sealCounter[counterKey]++;
+    }
+    const sealNo = sealCounter[counterKey];
+
+    const billNo = String(row[kBillNo] || '').trim();
+    const intlCode = String(row[kIntlCode] || '').trim();
+    const sealNumRaw = row[kSeal];
+    // 件數/毛重：優先用台灣件数/台灣重量，沒有值才用件数/毛重
+    const pieces = (row[kPiecesTW] !== '' && row[kPiecesTW] != null) ? row[kPiecesTW] : (kPieces ? row[kPieces] : '');
+    const weight = (row[kWeightTW] !== '' && row[kWeightTW] != null) ? row[kWeightTW] : (kWeightRaw ? row[kWeightRaw] : '');
+    const containerType = String(row[kType] || '').trim();
+    const mappedType = CONTAINER_TYPE_MAP[containerType] || containerType;
+
+    const cargoDesc = `EXPRESS PACKAGE  ${intlCode}/${mappedType}/2/${sealNumRaw}`;
+    const consigneeInfo = `收貨人:${consigneeName}\n${match.address || ''}`;
+    const unit = match.unit || 'PKG';
+
+    manifestByLocation[rowLocation].items.push({
+      billNo, sealNo, pieces, unit,
+      trackNo: intlCode, cargoDesc, weight,
+      consigneeName, consigneeShort: match.short_name || '', consigneeInfo,
+      taxId: match.tax_id || '',
+      shortName: match.short_name || '',
+      mappedType, sealNumRaw,
+    });
+  }
+
+  if (notFound.size) {
+    showError([
+      '以下收貨人找不到對照資料，請先到「收貨人管理」新增：',
+      ...Array.from(notFound).map(n => `<b>${n}</b>`)
+    ]);
+    return;
+  }
+
+  // 移除沒有任何資料的卸存地分頁
+  Object.keys(manifestByLocation).forEach(loc => {
+    if (!manifestByLocation[loc].items.length) delete manifestByLocation[loc];
+  });
+
+  if (!Object.keys(manifestByLocation).length) {
+    showError(['沒有任何資料符合指定的卸存地，請確認輸入的卸存地是否正確']);
+    return;
+  }
+
+  // 每個卸存地內部依艙號排序
+  Object.values(manifestByLocation).forEach(loc => {
+    loc.items.sort((a, b) => a.sealNo - b.sealNo);
+  });
+
+  // 儲存共用資訊
+  const ship = ships.find(s => s.id === shipId);
+  window._manifestMeta = { ship, voyage, registration, arrivalDate, mooringDate, arrivalRoc: toRocDate(arrivalDate), mooringRoc: toRocDate(mooringDate) };
+
+  currentLocationTab = Object.keys(manifestByLocation)[0];
+  renderLocationTabs();
+  renderPreview();
+}
+
+function renderLocationTabs() {
+  const tabsEl = document.getElementById('loc-tabs');
+  tabsEl.innerHTML = Object.keys(manifestByLocation).map(loc => `
+    <button class="loc-tab ${loc === currentLocationTab ? 'active' : ''}" onclick="switchLocationTab('${loc}')">
+      ${loc}（${manifestByLocation[loc].items.length}）
+    </button>`).join('');
+}
+
+function switchLocationTab(loc) {
+  currentLocationTab = loc;
+  renderLocationTabs();
+  renderPreview();
+}
+
+async function switchView(view) {
+  currentView = view;
+  document.getElementById('view-btn-table').classList.toggle('active', view === 'table');
+  document.getElementById('view-btn-excel').classList.toggle('active', view === 'excel');
+  document.getElementById('view-table').style.display = view === 'table' ? 'block' : 'none';
+  document.getElementById('view-excel').style.display = view === 'excel' ? 'block' : 'none';
+  await renderPreview();
+}
+
+async function renderPreview() {
+  const items = manifestByLocation[currentLocationTab].items;
+  document.getElementById('stat-total').textContent = items.length;
+  const seals = items.map(x => x.sealNo);
+  document.getElementById('stat-range').textContent = `${Math.min(...seals)} ~ ${Math.max(...seals)}`;
+
+  if (currentView === 'table') {
+    document.getElementById('preview-tbody').innerHTML = items.map(it => `
+      <tr>
+        <td class="cell-mono">${escapeHtml(it.billNo)}</td>
+        <td class="cell-mono">${it.sealNo}</td>
+        <td>${escapeHtml(String(it.pieces))}</td>
+        <td>${escapeHtml(it.unit)}</td>
+        <td class="cell-mono">${escapeHtml(it.trackNo)}</td>
+        <td class="cell-wide cell-mono">${escapeHtml(it.cargoDesc)}</td>
+        <td>${escapeHtml(String(it.weight))}</td>
+        <td class="cell-wide">${escapeHtml(it.consigneeShort)}</td>
+        <td class="cell-wide">${escapeHtml(it.consigneeInfo).replace(/\n/g,'<br>')}</td>
+      </tr>`).join('');
+  } else {
+    await renderExcelStyleView();
+  }
+
+  document.getElementById('preview-section').classList.add('show');
+}
+
+function excelCellDisplayValue(cell) {
+  let value = cell ? cell.value : null;
+
+  // ExcelJS 的公式儲存格通常是 { formula, result }。
+  // 預覽要顯示「公式算出的結果」，而不是 [object Object]。
+  if (value && typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      value = value.result;
+    } else if (value.richText) {
+      value = value.richText.map(t => t.text || '').join('');
+    } else if (value.text != null) {
+      value = value.text;
+    } else if (value.formula != null) {
+      value = '';
+    }
+  }
+
+  if (value instanceof Date) {
+    // ExcelJS 依照儲存格的日期格式把公式快取值轉成 Date。
+    // 範本中的日期是民國年文字（例如 115/08/25），這種值不是 JS 原生日期，
+    // 若被當成 Date 解析就可能在預覽出現 Invalid Date。
+    if (!Number.isNaN(value.getTime())) {
+      return value.toLocaleDateString('zh-TW');
+    }
+    // Date 無效時，優先回頭取公式/儲存格模型中的原始快取值。
+    const rawModel = cell && cell.model ? cell.model.v : null;
+    if (rawModel !== null && rawModel !== undefined && rawModel !== '') {
+      return String(rawModel);
+    }
+    return '';
+  }
+  if (value == null) return '';
+  let text = String(value);
+
+  // 預覽時不要把 Template 裡的英文欄位說明帶出來；實際 Excel 匯出不受影響。
+  // 這些說明是「預定到港時間---Time of Arrival」與「繫泊時間---time a Mooring Yeat」。
+  const labelOnly = [
+    '預定到港時間---Time of Arrival',
+    '繫泊時間---time a Mooring Yeat'
+  ];
+  if (labelOnly.some(label => text.trim().toLowerCase() === label.toLowerCase())) return '';
+
+  // 若日期儲存格的預覽值意外把說明文字與日期一起帶出，只保留日期部分。
+  text = text
+    .replace(/預定到港時間\s*[-—–]+\s*Time of Arrival\s*/i, '')
+    .replace(/繫泊時間\s*[-—–]+\s*time\s*a\s*Mooring\s*Yeat\s*/i, '')
+    .trim();
+
+  return text;
+}
+
+function excelArgbToCss(argb) {
+  if (!argb) return '';
+  const hex = String(argb).replace(/^FF/i, '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(hex)) return '';
+  return '#' + hex;
+}
+
+function excelSideCss(side) {
+  if (!side || !side.style) return '';
+  const map = { thin:'1px', medium:'2px', thick:'3px', double:'3px', hair:'1px', dotted:'1px', dashed:'1px' };
+  const width = map[side.style] || '1px';
+  const color = excelArgbToCss(side.color && (side.color.argb || side.color.rgb)) || '#888';
+  const style = side.style === 'double' ? 'double' : (side.style === 'dotted' ? 'dotted' : (side.style === 'dashed' ? 'dashed' : 'solid'));
+  return `${width} ${style} ${color}`;
+}
+
+function excelCellInlineStyle(cell, row) {
+  const st = cell.style || {};
+  const font = st.font || {};
+  const fill = st.fill || {};
+  const alignment = st.alignment || {};
+  const border = st.border || {};
+  const css = [];
+
+  if (font.name) css.push(`font-family:${font.name},Arial,sans-serif`);
+  if (font.sz) css.push(`font-size:${Math.max(8, Number(font.sz))}pt`);
+  if (font.bold) css.push('font-weight:700');
+  if (font.italic) css.push('font-style:italic');
+  if (font.color) {
+    const color = excelArgbToCss(font.color.argb || font.color.rgb);
+    if (color) css.push(`color:${color}`);
+  }
+  if (fill.type === 'pattern' && fill.pattern === 'solid' && fill.fgColor) {
+    const bg = excelArgbToCss(fill.fgColor.argb || fill.fgColor.rgb);
+    if (bg) css.push(`background:${bg}`);
+  }
+
+  const h = alignment.horizontal;
+  if (h === 'center') css.push('text-align:center');
+  else if (h === 'right') css.push('text-align:right');
+  else if (h === 'left') css.push('text-align:left');
+  else css.push('text-align:center');
+
+  if (alignment.vertical === 'top') css.push('vertical-align:top');
+  else if (alignment.vertical === 'bottom') css.push('vertical-align:bottom');
+  else css.push('vertical-align:middle');
+
+  if (alignment.wrapText) css.push('white-space:pre-wrap');
+  else css.push('white-space:pre');
+
+  if (alignment.textRotation) css.push(`transform:rotate(${Number(alignment.textRotation)}deg)`);
+
+  const borders = [
+    ['top','border-top'], ['right','border-right'], ['bottom','border-bottom'], ['left','border-left']
+  ];
+  for (const [side, prop] of borders) {
+    const b = excelSideCss(border[side]);
+    if (b) css.push(`${prop}:${b}`);
+  }
+
+  return css.join(';');
+}
+
+async function renderExcelStyleView() {
+  try {
+    // 預覽直接讀取「真正準備匯出的 XLSX」，所以資料、公式結果、合併儲存格都跟匯出檔走同一套來源。
+    const buf = await buildManifestXlsx(currentLocationTab);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buf);
+    const ws = workbook.getWorksheet('進口艙單印1份');
+    if (!ws) throw new Error('找不到「進口艙單印1份」工作表');
+
+    const items = manifestByLocation[currentLocationTab].items;
+    const container = document.getElementById('excel-preview-table');
+
+    // 艙單預覽只顯示 Excel 的列印範圍。
+    // Template 基準列印範圍是 A1:N21；超過 3 筆時，列印範圍會跟著新增資料列往下延伸。
+    const startRow = 1;
+    const endRow = Math.min(21 + Math.max(0, items.length - 3), ws.rowCount);
+    const startCol = 1;
+    const endCol = 14; // N 欄
+
+    const skipSet = new Set();
+    const spanMap = {};
+    for (let r = startRow; r <= endRow; r++) {
+      const row = ws.getRow(r);
+      for (let c = startCol; c <= endCol; c++) {
+        const cell = row.getCell(c);
+        if (cell.isMerged && cell.master && cell.master.address !== cell.address) {
+          skipSet.add(`${r}-${c}`);
+        }
+      }
+    }
+    for (let r = startRow; r <= endRow; r++) {
+      const row = ws.getRow(r);
+      for (let c = startCol; c <= endCol; c++) {
+        const key = `${r}-${c}`;
+        if (skipSet.has(key)) continue;
+        const cell = row.getCell(c);
+        if (!cell.isMerged) continue;
+        let colspan = 1, rowspan = 1;
+        while (c + colspan <= endCol) {
+          const x = ws.getRow(r).getCell(c + colspan);
+          if (!(x.isMerged && x.master && x.master.address === cell.address)) break;
+          colspan++;
+        }
+        while (r + rowspan <= endRow) {
+          const x = ws.getRow(r + rowspan).getCell(c);
+          if (!(x.isMerged && x.master && x.master.address === cell.address)) break;
+          rowspan++;
+        }
+        if (rowspan > 1 || colspan > 1) spanMap[key] = { rowspan, colspan };
+      }
+    }
+
+    // 依照 Excel 的欄寬建立 colgroup，讓預覽比例更接近真正的 Excel。
+    let colgroup = '<colgroup>';
+    for (let c = startCol; c <= endCol; c++) {
+      const width = ws.getColumn(c).width || 10;
+      colgroup += `<col style="width:${Math.max(24, Math.round(width * 7))}px">`;
+    }
+    colgroup += '</colgroup>';
+
+    let html = `<div class="excel-preview-page"><table class="excel-preview-real">${colgroup}<tbody>`;
+    for (let r = startRow; r <= endRow; r++) {
+      const row = ws.getRow(r);
+      const rowHeight = row.height ? Math.max(16, row.height * 1.333) : 22;
+      html += `<tr style="height:${rowHeight}px">`;
+      for (let c = startCol; c <= endCol; c++) {
+        const key = `${r}-${c}`;
+        if (skipSet.has(key)) continue;
+        const cell = row.getCell(c);
+        let value = excelCellDisplayValue(cell);
+        // J6 / L6 在 Excel 中是公式格；預覽不需要重新解析公式，
+        // 直接使用目前選船的「時間」即可。這只影響預覽，不會改變匯出檔。
+        if (r === 6 && (c === 10 || c === 12)) {
+          const previewMeta = window._manifestMeta || {};
+          if (previewMeta.arrivalRoc) value = previewMeta.arrivalRoc;
+        }
+        const span = spanMap[key];
+        const rowspanAttr = span && span.rowspan > 1 ? ` rowspan="${span.rowspan}"` : '';
+        const colspanAttr = span && span.colspan > 1 ? ` colspan="${span.colspan}"` : '';
+        const style = excelCellInlineStyle(cell, row);
+        html += `<td${rowspanAttr}${colspanAttr} style="${style}">${escapeHtml(value)}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  } catch (err) {
+    document.getElementById('excel-preview-table').innerHTML =
+      `<tbody><tr><td style="color:#cc2222;padding:20px">預覽產生失敗：${escapeHtml(err.message)}</td></tr></tbody>`;
+  }
+}
+
+/*
+  核心匯出：直接修改原始 XLSX 的 worksheet XML，再重新打包。
+  不讓 ExcelJS 重新序列化整本活頁簿，因此其它工作表的 XML、格式、列印設定等
+  都保持原樣，也避免 Excel 開啟時出現「已修復儲存格資訊」的警告。
+*/
+async function buildManifestXlsx(loc) {
+  if (typeof JSZip === 'undefined') throw new Error('Excel 元件載入失敗，請重新整理頁面');
+  const meta = window._manifestMeta;
+  const items = manifestByLocation[loc].items;
+
+  const response = await fetch(TEMPLATE_PATH, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`找不到 Excel 範本：${TEMPLATE_PATH}（HTTP ${response.status}）`);
+  const templateBuf = await response.arrayBuffer();
+  const zip = await JSZip.loadAsync(templateBuf);
+
+  // 範本內原有 calcChain 是舊的計算快取；修改公式引用的來源資料後，
+  // 保留它反而會讓 Excel 啟動時要求修復，因此移除並讓 Excel 重新計算。
+  if (zip.file('xl/calcChain.xml')) zip.remove('xl/calcChain.xml');
+
+  const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const parser = new DOMParser();
+  const serializer = new XMLSerializer();
+
+  const workbookXml = parser.parseFromString(await zip.file('xl/workbook.xml').async('text'), 'application/xml');
+  const relsXml = parser.parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('text'), 'application/xml');
+
+  // 移除 calcChain 關聯。
+  for (const relNode of Array.from(relsXml.getElementsByTagName('Relationship'))) {
+    if ((relNode.getAttribute('Type') || '').includes('/calcChain')) relNode.parentNode.removeChild(relNode);
+  }
+
+  // workbook 設為開啟時自動重新計算。
+  const calcPr = workbookXml.getElementsByTagNameNS(NS, 'calcPr')[0];
+  if (calcPr) {
+    calcPr.setAttribute('calcMode', 'auto');
+    calcPr.setAttribute('fullCalcOnLoad', '1');
+    calcPr.setAttribute('forceFullCalc', '1');
+  }
+
+  function getSheetTarget(sheetName) {
+    const sheetEl = Array.from(workbookXml.getElementsByTagNameNS(NS, 'sheet'))
+      .find(s => s.getAttribute('name') === sheetName);
+    if (!sheetEl) throw new Error(`範本檔案裡找不到「${sheetName}」工作表`);
+    const rid = sheetEl.getAttributeNS(REL_NS, 'id');
+    const rel = Array.from(relsXml.getElementsByTagName('Relationship'))
+      .find(x => x.getAttribute('Id') === rid);
+    if (!rel) throw new Error(`找不到「${sheetName}」工作表的 XML 位置`);
+    let target = rel.getAttribute('Target').replace(/^\//, '');
+    if (!target.startsWith('xl/')) target = 'xl/' + target.replace(/^\.\//, '');
+    return target;
+  }
+
+  function splitRef(ref) {
+    const m = String(ref).match(/^([A-Z]+)(\d+)$/);
+    if (!m) throw new Error(`無效儲存格位置：${ref}`);
+    return { col:m[1], row:Number(m[2]) };
+  }
+  function colNum(letters) {
+    let n=0; for (const ch of letters) n=n*26+(ch.charCodeAt(0)-64); return n;
+  }
+  function setRefRow(ref, row) {
+    const p=splitRef(ref); return `${p.col}${row}`;
+  }
+
+  function sheetApi(sheetXml) {
+    const root = sheetXml.documentElement;
+    const sheetData = root.getElementsByTagNameNS(NS, 'sheetData')[0];
+    if (!sheetData) throw new Error('工作表缺少 sheetData');
+
+    const rows = () => Array.from(sheetData.getElementsByTagNameNS(NS, 'row')).filter(r => r.parentNode === sheetData);
+    const getRow = n => rows().find(r => Number(r.getAttribute('r')) === n);
+
+    function findCell(row, ref) {
+      return Array.from(row.getElementsByTagNameNS(NS, 'c'))
+        .find(c => c.getAttribute('r') === ref && c.parentNode === row);
+    }
+    function ensureCell(row, ref) {
+      let cell=findCell(row,ref);
+      if (cell) return cell;
+      cell=sheetXml.createElementNS(NS,'c'); cell.setAttribute('r',ref);
+      const targetCol=colNum(splitRef(ref).col);
+      const cells=Array.from(row.getElementsByTagNameNS(NS,'c')).filter(c=>c.parentNode===row);
+      const before=cells.find(c=>colNum(splitRef(c.getAttribute('r')).col)>targetCol);
+      if (before) row.insertBefore(cell,before); else row.appendChild(cell);
+      return cell;
+    }
+    function clearChildren(cell) {
+      while (cell.firstChild) cell.removeChild(cell.firstChild);
+      cell.removeAttribute('t');
+    }
+    function setValue(ref, value) {
+      const p=splitRef(ref), row=getRow(p.row);
+      if (!row) throw new Error(`找不到第 ${p.row} 列`);
+      const cell=ensureCell(row,ref);
+      // 保留 cell 的 style / s 屬性，只替換內容。
+      clearChildren(cell);
+      if (value === null || value === undefined || value === '') return;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        const v=sheetXml.createElementNS(NS,'v'); v.textContent=String(value); cell.appendChild(v);
+      } else {
+        cell.setAttribute('t','inlineStr');
+        const is=sheetXml.createElementNS(NS,'is');
+        const t=sheetXml.createElementNS(NS,'t');
+        const text=String(value);
+        if (/^\s|\s$/.test(text)) t.setAttribute('xml:space','preserve');
+        t.textContent=text; is.appendChild(t); cell.appendChild(is);
+      }
+    }
+    function setFormula(ref, formula, cachedValue='') {
+      const p=splitRef(ref), row=getRow(p.row);
+      if (!row) throw new Error(`找不到第 ${p.row} 列`);
+      const cell=ensureCell(row,ref);
+      clearChildren(cell);
+      const f=sheetXml.createElementNS(NS,'f'); f.textContent=formula; cell.appendChild(f);
+      const v=sheetXml.createElementNS(NS,'v');
+      if (cachedValue !== null && cachedValue !== undefined) v.textContent=String(cachedValue);
+      cell.appendChild(v);
+      if (typeof cachedValue === 'string') cell.setAttribute('t','str');
+    }
+    function clearValue(ref) {
+      const p=splitRef(ref), row=getRow(p.row); if (!row) return;
+      const cell=findCell(row,ref); if (cell) clearChildren(cell);
+    }
+    return {root,sheetData,rows,getRow,findCell,ensureCell,setValue,setFormula,clearValue};
+  }
+
+  // ── 1. 建船資料檔：只更新資料來源格，其他工作表的公式全部保留。 ──
+  const shipTarget=getSheetTarget('建船資料檔');
+  const shipXml=parser.parseFromString(await zip.file(shipTarget).async('text'),'application/xml');
+  const shipApi=sheetApi(shipXml);
+
+  // 以最新 Template 的 B6:B13 為唯一資料來源。
+  // B12 對應表單的「時間」；B13 對應表單的「申請日期」，方便建船資料檔本身也跟著本次作業更新。
+  shipApi.setValue('B6', meta.ship?.ship_name || '');
+  shipApi.setValue('B7', meta.voyage || '');
+  shipApi.setValue('B8', meta.ship?.call_sign || '');
+  shipApi.setValue('B9', meta.ship?.captain_name || '');
+  shipApi.setValue('B10', meta.registration || '');
+  shipApi.setValue('B11', meta.ship?.gross_net_tonnage || '');
+  shipApi.setValue('B12', toRocDate(meta.arrivalDate));
+  shipApi.setValue('B13', toRocDate(meta.mooringDate));
+
+  // ── 2. 進口艙單：只填真正的資料來源欄位。D3/F3/H3/J3/L3/F6/J6/L6 皆保留 Template 公式。 ──
+  const sheetTarget=getSheetTarget('進口艙單印1份');
+  const sheetXml=parser.parseFromString(await zip.file(sheetTarget).async('text'),'application/xml');
+  const api=sheetApi(sheetXml);
+  const {root,sheetData,rows,getRow}=api;
+
+  const templateStart=16, templateCount=3, lastTemplateRow=18, footerStart=19;
+  const extra=Math.max(0,items.length-templateCount);
+
+  if (extra>0) {
+    const footerFirst=getRow(footerStart);
+    if (!footerFirst) throw new Error('最新範本找不到第 19 列的合計區');
+
+    const mergeCellsEl=root.getElementsByTagNameNS(NS,'mergeCells')[0];
+    const originalMerges=mergeCellsEl
+      ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x=>x.getAttribute('ref'))
+      : [];
+
+    // 只抓第18列的原始合併：新版 Template 的資料列是 F:G、K:M。
+    const dataMerges=originalMerges.filter(ref=>{
+      const nums=(ref.match(/\d+/g)||[]).map(Number);
+      return nums.length && Math.min(...nums)===lastTemplateRow && Math.max(...nums)===lastTemplateRow;
+    });
+
+    // Footer（合計、簽章、英文說明）往下移，原有 style / cell 結構不重建。
+    for (const row of rows()) {
+      const n=Number(row.getAttribute('r'));
+      if (n>=footerStart) {
+        row.setAttribute('r',String(n+extra));
+        for (const cell of Array.from(row.getElementsByTagNameNS(NS,'c'))) {
+          cell.setAttribute('r',setRefRow(cell.getAttribute('r'),n+extra));
+        }
+      }
+    }
+
+    if (mergeCellsEl) {
+      for (const mc of Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))) {
+        const ref=mc.getAttribute('ref');
+        const nums=(ref.match(/\d+/g)||[]).map(Number);
+        if (nums.length && Math.min(...nums)>=footerStart) {
+          mc.setAttribute('ref',ref.replace(/(\d+)/g,m=>String(Number(m)+extra)));
+        }
+      }
+    }
+
+    // 從最新 Template 第18列複製「列格式＋合併結構」。
+    // 公式不會被清掉：F 欄的公式會依新列號更新。
+    const sourceRow=getRow(lastTemplateRow);
+    for (let i=1;i<=extra;i++) {
+      const nr=lastTemplateRow+i;
+      const clone=sourceRow.cloneNode(true);
+      clone.setAttribute('r',String(nr));
+
+      for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
+        const oldRef=cell.getAttribute('r');
+        cell.setAttribute('r',setRefRow(oldRef,nr));
+
+        const f=cell.getElementsByTagNameNS(NS,'f')[0];
+        if (f) {
+          f.textContent=f.textContent.replace(/([A-Z]{1,3})18\b/g,(_,col)=>`${col}${nr}`);
+          // 讓預覽可看到公式結果；Excel 開啟後仍會重新計算。
+          while (cell.getElementsByTagNameNS(NS,'v').length) {
+            cell.removeChild(cell.getElementsByTagNameNS(NS,'v')[0]);
+          }
+          const v=sheetXml.createElementNS(NS,'v'); v.textContent=''; cell.appendChild(v);
+        } else {
+          // 新資料列的非公式內容先清空，但保留樣式。
+          while (cell.firstChild) cell.removeChild(cell.firstChild);
+          cell.removeAttribute('t');
+        }
+      }
+
+      sheetData.insertBefore(clone,footerFirst);
+
+      if (mergeCellsEl) {
+        for (const ref of dataMerges) {
+          const shifted=ref.replace(/(\d+)/g,m=>String(Number(m)+i));
+          // 防止重複建立 merge。
+          const exists=Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+            .some(mc=>mc.getAttribute('ref')===shifted);
+          if (!exists) {
+            const mc=sheetXml.createElementNS(NS,'mergeCell');
+            mc.setAttribute('ref',shifted);
+            mergeCellsEl.appendChild(mc);
+          }
+        }
+      }
+    }
+    if (mergeCellsEl) mergeCellsEl.setAttribute('count',String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
+
+    const dimension=root.getElementsByTagNameNS(NS,'dimension')[0];
+    if (dimension) {
+      const oldRef=dimension.getAttribute('ref');
+      oldRef && dimension.setAttribute('ref',oldRef.replace(/(\d+)$/,m=>String(Number(m)+extra)));
+    }
+  }
+
+  // Header 的公式保留；同步更新它們的 cached value，讓網站預覽先看到最新資料。
+  api.setFormula('D3','=建船資料檔!B6',meta.ship?.ship_name || '');
+  api.setFormula('F3','=建船資料檔!B7',meta.voyage || '');
+  api.setFormula('H3','=建船資料檔!B8',meta.ship?.call_sign || '');
+  api.setFormula('J3','=建船資料檔!B9',meta.ship?.captain_name || '');
+  api.setFormula('L3','=建船資料檔!B10',meta.registration || '');
+  api.setFormula('F6','=建船資料檔!B11',meta.ship?.gross_net_tonnage || '');
+  // 目前正式 Template 的主格為 J6（預定到港時間）與 L6（繫泊時間）。
+  // 匯出維持 Template 原本公式位置，只更新公式快取結果。
+  api.setFormula('J6','=建船資料檔!B12',toRocDate(meta.arrivalDate));
+  api.setFormula('L6','=J6',toRocDate(meta.arrivalDate));
+
+  const blankCols=['A','B','C','D','E','H','I','J','K','P','S','T','U','V','W','X','Z','AA'];
+  if (items.length<templateCount) {
+    for (let row=templateStart+items.length;row<templateStart+templateCount;row++) {
+      for (const col of blankCols) api.clearValue(`${col}${row}`);
+      // F:G 是公式合併格，不清除 F。
+      // K:M 是收貨人合併格，清除 K 即可。
+    }
+  }
+
+  const taxIdShown=new Set();
+  items.forEach((it,i)=>{
+    const row=templateStart+i;
+    api.setValue(`A${row}`,it.billNo);
+    api.setValue(`B${row}`,it.sealNo);
+    api.setValue(`C${row}`,Number(it.pieces)||0);
+    api.setValue(`D${row}`,it.unit);
+    // E = 貨櫃國際碼，例如 TCNU9125529；P = 封條，例如 200405。
+    api.setValue(`E${row}`,it.trackNo || '');
+
+    // F:G 是 Template 原本的公式，不能改成一般文字。
+    const formula=`T${row}&"  "&E${row}&"/"&U${row}&"/"&V${row}&"/"&P${row}`;
+    const formulaResult=`EXPRESS PACKAGE  ${it.trackNo || ''}/${it.mappedType || ''}/2/${it.sealNumRaw || ''}`;
+    api.setFormula(`F${row}`,`=${formula}`,formulaResult);
+
+    api.setValue(`H${row}`,`R:${loc}\nT:KNH0010W\nL:CNXMN`);
+    api.setValue(`I${row}`,Number(it.weight)||0);
+    api.setValue(`J${row}`,'KGS');
+
+    // K:M 是新版 Template 的合併儲存格，K 才是 master cell。
+    api.setValue(`K${row}`,it.consigneeInfo);
+
+    // N~V 依最新範本的欄位定義：
+    // N=(1)、O=收貨人名稱(英文)、P=封條、Q=SAME AS CONSIGNEE、
+    // R=統一編號、S=收貨人中文簡稱、T=EXPRESS PACKAGE、U=櫃型、V=2。
+    api.setValue(`N${row}`,it.remark || '(1)');
+    api.setValue(`O${row}`,it.consigneeName || '');
+    api.setValue(`P${row}`,it.sealNumRaw || '');
+    api.setValue(`Q${row}`,'SAME AS CONSIGNEE\n');
+
+    if (!taxIdShown.has(it.consigneeShort)) {
+      api.setValue(`R${row}`,it.taxId || '');
+      taxIdShown.add(it.consigneeShort);
+    } else {
+      api.setValue(`R${row}`,'');
+    }
+
+    api.setValue(`S${row}`,it.shortName || '');
+    api.setValue(`T${row}`,'EXPRESS PACKAGE');
+    api.setValue(`U${row}`,it.mappedType);
+    api.setValue(`V${row}`,2);
+  });
+
+  // 合計列：保留「公式」而不是把公式覆蓋成固定數字。
+  const totalRow=templateStart+items.length;
+  const totalPieces=items.reduce((sum,it)=>sum+(parseInt(it.pieces)||0),0);
+  const totalWeight=items.reduce((sum,it)=>sum+(parseFloat(it.weight)||0),0);
+  const lastDataRow=templateStart+items.length-1;
+  api.setValue(`A${totalRow}`,'合計');
+  api.setFormula(`C${totalRow}`,`=SUM(C${templateStart}:C${lastDataRow})`,totalPieces);
+  api.setValue(`D${totalRow}`,items[0]?items[0].unit:'PKG');
+  api.setFormula(`I${totalRow}`,`=SUM(I${templateStart}:J${lastDataRow})`,totalWeight);
+
+  // 更新艙單的 Print Area。新版 Template 是 A1:N21。
+  const newPrintEnd=21+extra;
+  const definedNames=workbookXml.getElementsByTagNameNS(NS,'definedName');
+  for (const dn of Array.from(definedNames)) {
+    if (dn.getAttribute('name')==='_xlnm.Print_Area' && String(dn.textContent||'').includes('進口艙單印1份')) {
+      dn.textContent=`'進口艙單印1份'!$A$1:$N$${newPrintEnd}`;
+    }
+  }
+
+  zip.file(shipTarget,serializer.serializeToString(shipXml));
+  zip.file(sheetTarget,serializer.serializeToString(sheetXml));
+  zip.file('xl/workbook.xml',serializer.serializeToString(workbookXml));
+  zip.file('xl/_rels/workbook.xml.rels',serializer.serializeToString(relsXml));
+
+  const ctFile=zip.file('[Content_Types].xml');
+  if (ctFile) {
+    const ctXml=parser.parseFromString(await ctFile.async('text'),'application/xml');
+    for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
+      if (ov.getAttribute('PartName')==='/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+    }
+    zip.file('[Content_Types].xml',serializer.serializeToString(ctXml));
+  }
+
+  return await zip.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
+}
+
+function backToEdit() {
+  // 回到輸入區，但保留已選船舶、日期、卸存地與已匯入的原始 Excel，方便直接修改後重新產生。
+  document.getElementById('preview-section').classList.remove('show');
+  document.querySelectorAll('.step-section').forEach(el => el.style.display = '');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function exportManifest() {
+  const btnEl = document.querySelector('.btn-export');
+  const originalText = btnEl.textContent;
+  btnEl.textContent = '匯出中…請稍候';
+  btnEl.disabled = true;
+  try {
+    const meta = window._manifestMeta;
+    const loc = currentLocationTab;
+    const outBuf = await buildManifestXlsx(loc);
+    const filename = `${meta.ship.ship_name}_${meta.registration}_${loc}_艙單.xlsx`;
+    const blob = new Blob([outBuf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  } catch(err) {
+    alert('匯出失敗：' + err.message);
+    console.error(err);
+  } finally {
+    btnEl.textContent = originalText;
+    btnEl.disabled = false;
+  }
+}
+
+
+init();
+</script>
+</body>
+</html>
