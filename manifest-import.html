@@ -1534,15 +1534,6 @@ async function buildManifestXlsx(loc) {
     for (const ov of Array.from(ctXml.getElementsByTagName('Override'))) {
       if (ov.getAttribute('PartName')==='/xl/calcChain.xml') ov.parentNode.removeChild(ov);
     }
-    for (const partName of extraSheetContentTypes) {
-      const exists = Array.from(ctXml.getElementsByTagName('Override')).some(ov => ov.getAttribute('PartName') === partName);
-      if (!exists) {
-        const ov = ctXml.createElement('Override');
-        ov.setAttribute('PartName', partName);
-        ov.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
-        ctXml.documentElement.appendChild(ov);
-      }
-    }
     zip.file('[Content_Types].xml',serializer.serializeToString(ctXml));
   }
 
