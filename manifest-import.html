@@ -1530,6 +1530,11 @@ async function buildManifestXlsx(loc) {
     if (mergeCellsEl) mergeCellsEl.setAttribute('count', String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length));
   }
 
+  // 紅紙 C6：Template 原本是範例船名（例如「大佑輪」），
+  // 本次作業應改成目前卸存地所輸入的二程船名稱。
+  const redShip2Name = (manifestByLocation[loc] && manifestByLocation[loc].ship2Name) || '';
+  red.api.setValue('C6', redShip2Name);
+
   // 逐筆確認准單（紅紙）22列起的公式，完全按照 Template 原本公式模式，
   // 只將艙單來源列號由16、17、18依筆數延伸。
   for (let i = 0; i < items.length; i++) {
@@ -1546,6 +1551,19 @@ async function buildManifestXlsx(loc) {
   if (redDimension && redDimension.getAttribute('ref')) {
     const old = redDimension.getAttribute('ref');
     redDimension.setAttribute('ref', old.replace(/(\d+)$/, m => String(Number(m) + redExtra)));
+  }
+
+  // 紅紙列印範圍也跟著新增資料列往下延伸。
+  // Template 3 筆時為 A1:I31；每增加 1 筆，固定區往下 1 列。
+  // 因此 5 筆時為 A1:I33。
+  const redPrintEnd = 31 + redExtra;
+  for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
+    const name = dn.getAttribute('name');
+    const localSheetId = dn.getAttribute('localSheetId');
+    const text = String(dn.textContent || '');
+    if (name === '_xlnm.Print_Area' && text.includes('准單(紅紙)-2份')) {
+      dn.textContent = `'准單(紅紙)-2份'!$A$1:$I$${redPrintEnd}`;
+    }
   }
 
   // 第一階段只寫回 T1、建船資料檔與艙單；不碰其他工作表。
