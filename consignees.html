@@ -432,6 +432,9 @@ function openAddConsignee() {
   document.getElementById('nc-name').value = '';
   document.getElementById('nc-chinesename').value = '';
   document.getElementById('nc-address').value = '';
+  document.getElementById('nc-taxid').value = '';
+  document.getElementById('nc-contact').value = '';
+  document.getElementById('nc-shortname').value = '';
   document.getElementById('nc-location').value = '';
   document.getElementById('nc-seal').value = '';
   document.getElementById('nc-unit').value = 'PKG';
@@ -476,6 +479,18 @@ async function submitNewConsignee() {
       }
       throw new Error(errText);
     }
+
+    // 確認 Supabase 新增成功後才清空，避免下一次新增帶出上一家廠商資料。
+    document.getElementById('nc-name').value = '';
+    document.getElementById('nc-chinesename').value = '';
+    document.getElementById('nc-address').value = '';
+    document.getElementById('nc-taxid').value = '';
+    document.getElementById('nc-contact').value = '';
+    document.getElementById('nc-shortname').value = '';
+    document.getElementById('nc-location').value = '';
+    document.getElementById('nc-seal').value = '';
+    document.getElementById('nc-unit').value = 'PKG';
+    errEl.textContent = '';
 
     closeDlg('dlg-add-consignee');
     await loadConsignees();
