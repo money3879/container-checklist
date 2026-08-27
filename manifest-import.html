@@ -1006,6 +1006,26 @@ async function buildManifestXlsx(loc) {
     return target;
   }
 
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 第五階段：運送單動態工作表
+  // Template 已提供「運送第1筆～運送第3筆」三張完整母版。
+  // 超過3筆時，複製「運送第3筆」的完整 XML 與工作表關聯，
+  // 再依 Template 原有公式模式只調整艙單／貨櫃清單的來源列。
+  // 每張運送單列印範圍固定 A1:N41。
+  // ═══════════════════════════════════════════════════════════════════
+  function getWorksheetSheetInfo(sheetName) {
+    const sheetEl = Array.from(workbookXml.getElementsByTagNameNS(NS, 'sheet'))
+      .find(s => s.getAttribute('name') === sheetName);
+    if (!sheetEl) throw new Error(`範本檔案裡找不到「${sheetName}」工作表`);
+    const rid = sheetEl.getAttributeNS(REL_NS, 'id');
+    const rel = Array.from(relsXml.getElementsByTagName('Relationship'))
+      .find(x => x.getAttribute('Id') === rid);
+    if (!rel) throw new Error(`找不到「${sheetName}」工作表的 XML 位置`);
+    let target = rel.getAttribute('Target').replace(/^\//, '');
+    if (!target.startsWith('xl/')) target = 'xl/' + target.replace(/^\.\//, '');
+    return { sheetEl, rid, rel, target };
+  }
   function splitRef(ref) {
     const m = String(ref).match(/^([A-Z]+)(\d+)$/);
     if (!m) throw new Error(`無效儲存格位置：${ref}`);
@@ -1833,7 +1853,147 @@ async function buildManifestXlsx(loc) {
     }
   }
 
-  // 目前寫回建船資料檔、艙單、T1、准單（紅紙）、准單申請與貨櫃清單；運送單仍暫不處理。
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 第五階段：運送單
+  // 每一筆資料各自一張工作表，完全沿用 Template 的命名：
+  // 「運送第1筆」、「運送第2筆」、「運送第3筆」……
+  // Template 已有前三張，因此只在 items.length > 3 時新增工作表。
+  // 每張工作表固定列印 A1:N41。
+  // ═══════════════════════════════════════════════════════════════════
+  const transportTemplateCount = 3;
+  const transportExtra = Math.max(0, items.length - transportTemplateCount);
+  const transportSource = getWorksheetSheetInfo('運送第3筆');
+  const sheetsEl = workbookXml.getElementsByTagNameNS(NS, 'sheets')[0];
+  if (!sheetsEl) throw new Error('workbook.xml 找不到 sheets');
+
+  // 取得目前最大的 sheetId / relationship Id，新增工作表時遞增。
+  let maxSheetId = 0;
+  for (const s of Array.from(sheetsEl.getElementsByTagNameNS(NS, 'sheet'))) {
+    maxSheetId = Math.max(maxSheetId, Number(s.getAttribute('sheetId')) || 0);
+  }
+  let maxRidNum = 0;
+  for (const r of Array.from(relsXml.getElementsByTagName('Relationship'))) {
+    const m = String(r.getAttribute('Id') || '').match(/^rId(\d+)$/);
+    if (m) maxRidNum = Math.max(maxRidNum, Number(m[1]));
+  }
+
+  const ctFileTransport = zip.file('[Content_Types].xml');
+  const ctXmlTransport = ctFileTransport
+    ? parser.parseFromString(await ctFileTransport.async('text'), 'application/xml')
+    : null;
+
+  // 以第3張 Template 運送單為母版；它本身是第3筆，所以公式基準是艙單第18列、貨櫃清單第13列。
+  const sourceTransportXml = parser.parseFromString(
+    await zip.file(transportSource.target).async('text'),
+    'application/xml'
+  );
+
+  for (let i = 0; i < transportExtra; i++) {
+    const itemIndex = transportTemplateCount + i; // 0-based，第4筆開始
+    const sheetNumber = itemIndex + 1;
+    const newName = `運送第${sheetNumber}筆`;
+    const newSheetId = ++maxSheetId;
+    const newRid = `rId${++maxRidNum}`;
+    const newTarget = `xl/worksheets/sheet${newSheetId}.xml`;
+    const newLocalSheetId = Array.from(sheetsEl.getElementsByTagNameNS(NS, 'sheet')).length;
+
+    // 防止重複名稱（若 Template 未來已經有同名工作表，就直接報明確錯誤）。
+    if (Array.from(sheetsEl.getElementsByTagNameNS(NS, 'sheet'))
+      .some(s => s.getAttribute('name') === newName)) {
+      throw new Error(`運送單工作表名稱重複：${newName}`);
+    }
+
+    const newXml = sourceTransportXml.cloneNode(true);
+    const root = newXml.documentElement;
+
+    // 公式來源列：
+    // 第4筆 → 艙單19、貨櫃清單15
+    // 第5筆 → 艙單20、貨櫃清單17
+    const manifestRow = 16 + itemIndex;
+    const cargoRow = 9 + itemIndex * 2;
+
+    for (const cell of Array.from(root.getElementsByTagNameNS(NS, 'c'))) {
+      const f = cell.getElementsByTagNameNS(NS, 'f')[0];
+      if (!f || f.textContent == null) continue;
+
+      let formula = f.textContent;
+      // 母版「運送第3筆」對應艙單第18列、貨櫃清單第13列。
+      formula = formula.replace(/(進口艙單印1份![A-Z]{1,3})18\b/g, `$1${manifestRow}`);
+      formula = formula.replace(/('貨櫃清單0638s-1份'![A-Z]{1,3})13\b/g, `$1${cargoRow}`);
+
+      f.textContent = formula;
+
+      // 公式快取清空，讓 Excel 開啟時依新的來源重新計算。
+      for (const v of Array.from(cell.getElementsByTagNameNS(NS, 'v'))) {
+        cell.removeChild(v);
+      }
+      const v = newXml.createElementNS(NS, 'v');
+      v.textContent = '';
+      cell.appendChild(v);
+    }
+
+    // 維持 A1:P41 的 Template dimension；列印範圍則明確設定為 A1:N41。
+    const dimension = root.getElementsByTagNameNS(NS, 'dimension')[0];
+    if (dimension) dimension.setAttribute('ref', 'A1:P41');
+
+    // 寫入新的 worksheet XML。
+    zip.file(newTarget, serializer.serializeToString(newXml));
+
+    // 複製 Template 第3張運送單的 worksheet relationship。
+    const sourceRelPath = `xl/worksheets/_rels/${transportSource.target.split('/').pop()}.rels`;
+    const newRelPath = `xl/worksheets/_rels/sheet${newSheetId}.xml.rels`;
+    const sourceRelFile = zip.file(sourceRelPath);
+    if (sourceRelFile) {
+      zip.file(newRelPath, await sourceRelFile.async('text'));
+    }
+
+    // workbook.xml 新增 sheet。
+    const sheetNode = workbookXml.createElementNS(NS, 'sheet');
+    sheetNode.setAttribute('name', newName);
+    sheetNode.setAttribute('sheetId', String(newSheetId));
+    sheetNode.setAttributeNS(REL_NS, 'r:id', newRid);
+    sheetsEl.appendChild(sheetNode);
+
+    // workbook.xml.rels 新增 worksheet relationship。
+    const relNode = relsXml.createElementNS(
+      'http://schemas.openxmlformats.org/package/2006/relationships',
+      'Relationship'
+    );
+    relNode.setAttribute('Id', newRid);
+    relNode.setAttribute(
+      'Type',
+      'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet'
+    );
+    relNode.setAttribute('Target', `worksheets/sheet${newSheetId}.xml`);
+    relsXml.documentElement.appendChild(relNode);
+
+    // 每一張運送單都有自己的 Print_Area：A1:N41。
+    const definedNamesEl = workbookXml.getElementsByTagNameNS(NS, 'definedNames')[0]
+      || workbookXml.appendChild(workbookXml.createElementNS(NS, 'definedNames'));
+
+    const printName = workbookXml.createElementNS(NS, 'definedName');
+    printName.setAttribute('name', '_xlnm.Print_Area');
+    printName.setAttribute('localSheetId', String(newLocalSheetId));
+    printName.textContent = `'${newName}'!$A$1:$N$41`;
+    definedNamesEl.appendChild(printName);
+
+    // [Content_Types].xml 新增這張 worksheet 的 Override。
+    if (ctXmlTransport) {
+      const override = ctXmlTransport.createElementNS(
+        'http://schemas.openxmlformats.org/package/2006/content-types',
+        'Override'
+      );
+      override.setAttribute('PartName', `/xl/worksheets/sheet${newSheetId}.xml`);
+      override.setAttribute(
+        'ContentType',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml'
+      );
+      ctXmlTransport.documentElement.appendChild(override);
+    }
+  }
+
+  // 寫回所有動態工作表；運送單第4筆起已在上方建立。
   zip.file(t1.target, serializer.serializeToString(t1.xml));
   zip.file(red.target, serializer.serializeToString(red.xml));
   zip.file(application.target, serializer.serializeToString(application.xml));
@@ -1850,6 +2010,13 @@ async function buildManifestXlsx(loc) {
       if (ov.getAttribute('PartName') === '/xl/calcChain.xml') ov.parentNode.removeChild(ov);
     }
     zip.file('[Content_Types].xml', serializer.serializeToString(ctXml));
+  }
+  if (ctXmlTransport) {
+    // 避免重複的 calcChain Override；新增的 worksheet Override 已在上方加入。
+    for (const ov of Array.from(ctXmlTransport.getElementsByTagName('Override'))) {
+      if (ov.getAttribute('PartName') === '/xl/calcChain.xml') ov.parentNode.removeChild(ov);
+    }
+    zip.file('[Content_Types].xml', serializer.serializeToString(ctXmlTransport));
   }
 
   return await zip.generateAsync({type:'arraybuffer',compression:'DEFLATE'});
