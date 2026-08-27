@@ -44,8 +44,8 @@ main { padding:16px; padding-bottom:90px }
 }
 .empty .ico { font-size:2.2rem; margin-bottom:10px }
 
-/* ── CONSIGNEE CARD (grouped by name) ── */
-.consignee-card {
+/* ── LOCATION CARD (grouped by location, sorted by seal) ── */
+.location-card {
   background:#ffffff; border:1px solid rgba(0,0,0,.12); border-radius:10px;
   padding:14px 16px; margin-bottom:10px;
 }
@@ -62,7 +62,7 @@ main { padding:16px; padding-bottom:90px }
   background:#ffffff; color:var(--cyan); white-space:nowrap; flex-shrink:0;
 }
 
-/* location rows within a card */
+/* consignee rows within a location card */
 .loc-row {
   display:flex; align-items:center; justify-content:space-between; gap:10px;
   padding:8px 10px; border-radius:7px; background:#f8f9fa; margin-bottom:6px;
@@ -87,6 +87,17 @@ main { padding:16px; padding-bottom:90px }
   cursor:pointer; font-family:inherit;
 }
 
+/* ── LOCATION GROUP ── */
+.location-title {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin-bottom:10px;
+}
+.location-title-main { font-size:1rem; font-weight:900; color:#1a5a8a; }
+.location-count { font-size:.68rem; color:#777; white-space:nowrap; }
+.consignee-mini { font-size:.9rem; font-weight:800; color:#111; }
+.consignee-en { font-size:.72rem; color:#777; margin-top:2px; word-break:break-word; }
+.consignee-meta { display:flex; gap:10px; flex-wrap:wrap; margin-top:5px; font-size:.68rem; color:#777; }
+.seal-badge { display:inline-flex; align-items:center; padding:3px 7px; border-radius:5px; background:#eaf5fc; color:#1a7bbf; font-family:var(--mono); font-weight:800; }
 /* ── DIALOG ── */
 .dlg-overlay {
   position:fixed; inset:0; background:rgba(0,0,0,.5);
@@ -157,6 +168,7 @@ main { padding:16px; padding-bottom:90px }
 </div>
 
 <main>
+  <div style="font-size:.76rem;color:#777;margin:0 2px 12px">依卸存地分組，同一卸存地內依艙號由小到大排序</div>
   <div id="list"></div>
 </main>
 
@@ -347,7 +359,7 @@ let editingLocName = null;
 
 async function loadConsignees() {
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/consignees?select=*&order=name.asc,location.asc`, {
+    const res = await fetch(`${SB_URL}/rest/v1/consignees?select=*&order=location.asc,seal_start.asc,name.asc`, {
       headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
     });
     if (!res.ok) throw new Error('連線失敗');
@@ -360,19 +372,30 @@ async function loadConsignees() {
 }
 
 function groupData() {
+  // 顯示方式改為「卸存地 → 收貨人」，方便先找到卸存地，再依艙號找收貨人。
   const map = {};
   rawRows.forEach(r => {
-    if (!map[r.name]) {
-      map[r.name] = { name: r.name, address: r.address || '', taxId: r.tax_id || '', contactInfo: r.contact_info || '', shortName: r.short_name || '', chineseName: r.chinese_name || '', locations: [] };
-    }
-    map[r.name].locations.push({ id: r.id, location: r.location, seal_start: r.seal_start, unit: r.unit });
-    if (r.address) map[r.name].address = r.address;
-    if (r.tax_id) map[r.name].taxId = r.tax_id;
-    if (r.contact_info) map[r.name].contactInfo = r.contact_info;
-    if (r.short_name) map[r.name].shortName = r.short_name;
-    if (r.chinese_name) map[r.name].chineseName = r.chinese_name;
+    const location = (r.location || '').trim().toUpperCase() || '未設定卸存地';
+    if (!map[location]) map[location] = { location, rows: [] };
+    map[location].rows.push({
+      id: r.id,
+      name: r.name || '',
+      chineseName: r.chinese_name || '',
+      address: r.address || '',
+      taxId: r.tax_id || '',
+      contactInfo: r.contact_info || '',
+      shortName: r.short_name || '',
+      seal_start: Number(r.seal_start) || 0,
+      unit: r.unit || 'PKG'
+    });
   });
-  grouped = Object.values(map);
+
+  // 卸存地依名稱排序；同一卸存地內依艙號由小到大。
+  grouped = Object.values(map).sort((a, b) => a.location.localeCompare(b.location, 'zh-Hant', { numeric: true }));
+  grouped.forEach(g => g.rows.sort((a, b) => {
+    if (a.seal_start !== b.seal_start) return a.seal_start - b.seal_start;
+    return a.name.localeCompare(b.name, 'en', { numeric: true });
+  }));
 }
 
 function render() {
@@ -387,30 +410,30 @@ function render() {
   }
 
   listEl.innerHTML = grouped.map(g => `
-    <div class="consignee-card">
-      <div class="cc-header">
-        <div style="flex:1;min-width:0">
-          <div class="cc-name">${escapeHtml(g.chineseName || g.name)}</div>
-          <div style="font-size:.75rem;color:#777;margin-top:2px">英文名稱：${escapeHtml(g.name)}</div>
-          ${g.address ? `<div class="cc-address">${escapeHtml(g.address)}</div>` : '<div class="cc-address" style="color:#cc8800">尚未設定地址</div>'}
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:.72rem;color:#888888">
-            ${g.shortName ? `<span>簡稱：<b style="color:#555">${escapeHtml(g.shortName)}</b></span>` : ''}
-            ${g.taxId ? `<span>統編：<b style="color:#555">${escapeHtml(g.taxId)}</b></span>` : ''}
-            ${g.contactInfo ? `<span>聯絡人：<b style="color:#555">${escapeHtml(g.contactInfo).replace(/\n/g,' / ')}</b></span>` : ''}
-          </div>
-        </div>
-        <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(g.name)}')">編輯</button>
+    <div class="location-card">
+      <div class="location-title">
+        <div class="location-title-main">📍 ${escapeHtml(g.location)}</div>
+        <div class="location-count">${g.rows.length} 家收貨人</div>
       </div>
-      ${g.locations.map(loc => `
+      ${g.rows.map(r => `
         <div class="loc-row">
-          <div class="loc-info">卸存地：<b>${escapeHtml(loc.location)}</b> ・ 艙號起始：<b>${loc.seal_start}</b> ・ 單位：<b>${loc.unit || 'PKG'}</b></div>
+          <div class="loc-info">
+            <div class="consignee-mini">${escapeHtml(r.chineseName || r.name)}</div>
+            <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
+            <div class="consignee-meta">
+              <span class="seal-badge">艙號 ${escapeHtml(String(r.seal_start))}</span>
+              <span>單位：<b>${escapeHtml(r.unit)}</b></span>
+              ${r.shortName ? `<span>簡稱：<b>${escapeHtml(r.shortName)}</b></span>` : ''}
+              ${r.taxId ? `<span>統編：<b>${escapeHtml(r.taxId)}</b></span>` : ''}
+              ${r.contactInfo ? `<span>聯絡人：<b>${escapeHtml(r.contactInfo).replace(/\n/g,' / ')}</b></span>` : ''}
+            </div>
+          </div>
           <div class="loc-actions">
-            <button class="loc-btn loc-btn-edit" onclick="openEditLocation('${loc.id}','${escapeAttr(g.name)}')">編輯</button>
-            <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${loc.id}','${escapeAttr(g.name)}','${escapeAttr(loc.location)}')">刪除</button>
+            <button class="loc-btn loc-btn-edit" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
+            <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${r.id}','${escapeAttr(r.name)}','${escapeAttr(g.location)}')">刪除</button>
           </div>
         </div>
       `).join('')}
-      <button class="add-loc-btn" onclick="openAddLocation('${escapeAttr(g.name)}')">＋ 新增卸存地</button>
     </div>`).join('');
 }
 
@@ -432,9 +455,6 @@ function openAddConsignee() {
   document.getElementById('nc-name').value = '';
   document.getElementById('nc-chinesename').value = '';
   document.getElementById('nc-address').value = '';
-  document.getElementById('nc-taxid').value = '';
-  document.getElementById('nc-contact').value = '';
-  document.getElementById('nc-shortname').value = '';
   document.getElementById('nc-location').value = '';
   document.getElementById('nc-seal').value = '';
   document.getElementById('nc-unit').value = 'PKG';
@@ -480,18 +500,6 @@ async function submitNewConsignee() {
       throw new Error(errText);
     }
 
-    // 確認 Supabase 新增成功後才清空，避免下一次新增帶出上一家廠商資料。
-    document.getElementById('nc-name').value = '';
-    document.getElementById('nc-chinesename').value = '';
-    document.getElementById('nc-address').value = '';
-    document.getElementById('nc-taxid').value = '';
-    document.getElementById('nc-contact').value = '';
-    document.getElementById('nc-shortname').value = '';
-    document.getElementById('nc-location').value = '';
-    document.getElementById('nc-seal').value = '';
-    document.getElementById('nc-unit').value = 'PKG';
-    errEl.textContent = '';
-
     closeDlg('dlg-add-consignee');
     await loadConsignees();
     toast('✅ 已新增收貨人');
@@ -505,15 +513,15 @@ async function submitNewConsignee() {
 
 /* ══ EDIT CONSIGNEE (name + address, applies to all rows with that name) ══ */
 function openEditConsignee(name) {
-  const g = grouped.find(x => x.name === name);
-  if (!g) return;
+  const row = rawRows.find(x => x.name === name);
+  if (!row) return;
   editingLocName = name;
-  document.getElementById('ec-name').value = g.name;
-  document.getElementById('ec-chinesename').value = g.chineseName || '';
-  document.getElementById('ec-address').value = g.address;
-  document.getElementById('ec-taxid').value = g.taxId || '';
-  document.getElementById('ec-contact').value = g.contactInfo || '';
-  document.getElementById('ec-shortname').value = g.shortName || '';
+  document.getElementById('ec-name').value = row.name;
+  document.getElementById('ec-chinesename').value = row.chinese_name || '';
+  document.getElementById('ec-address').value = row.address || '';
+  document.getElementById('ec-taxid').value = row.tax_id || '';
+  document.getElementById('ec-contact').value = row.contact_info || '';
+  document.getElementById('ec-shortname').value = row.short_name || '';
   document.getElementById('ec-error').textContent = '';
   document.getElementById('dlg-edit-consignee').classList.add('show');
 }
@@ -536,9 +544,9 @@ async function submitEditConsignee() {
 
   try {
     // 更新所有屬於這個收貨人（原名稱）的資料列
-    const g = grouped.find(x => x.name === editingLocName);
-    for (const loc of g.locations) {
-      const res = await fetch(`${SB_URL}/rest/v1/consignees?id=eq.${loc.id}`, {
+    const rowsToUpdate = rawRows.filter(x => x.name === editingLocName);
+    for (const row of rowsToUpdate) {
+      const res = await fetch(`${SB_URL}/rest/v1/consignees?id=eq.${row.id}`, {
         method: 'PATCH',
         headers: {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
@@ -573,8 +581,8 @@ function openAddLocation(name) {
 }
 
 function openEditLocation(id, name) {
-  const g = grouped.find(x => x.name === name);
-  const loc = g.locations.find(x => x.id === id);
+  const g = grouped.find(x => x.rows.some(x => x.id === id));
+  const loc = g ? g.rows.find(x => x.id === id) : null;
   if (!loc) return;
   editingLocId = id;
   editingLocName = name;
