@@ -1656,6 +1656,167 @@ async function buildManifestXlsx(loc) {
     application.api.setFormula(`I${r}`, `='准單(紅紙)-2份'!I${redRow}:J${redRow}`, '');
   }
 
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 第四階段：只處理「貨櫃清單0638s-1份」
+  // Template 原本 3 筆，每筆佔 2 列：
+  // 第1筆 9~10、第2筆 11~12、第3筆 13~14。
+  // 第15列起為固定內容。超過3筆時，每增加1筆就增加2列，
+  // 並完整沿用 Template 第13~14列的格式、合併儲存格與公式。
+  // ═══════════════════════════════════════════════════════════════════
+  const cargo = await loadSheetXmlByName('貨櫃清單0638s-1份');
+  const cargoStart = 9;
+  const cargoTemplateCount = 3;
+  const cargoExtra = Math.max(0, items.length - cargoTemplateCount);
+  const cargoFooterStart = 15;
+  const cargoRowsPerItem = 2;
+
+  if (!cargo.api.getRow(cargoFooterStart)) {
+    throw new Error('貨櫃清單範本找不到第 15 列固定內容');
+  }
+
+  if (cargoExtra > 0) {
+    const cargoShift = cargoExtra * cargoRowsPerItem;
+
+    // 固定內容（倉儲業、船公司簽章、頁碼）整體往下移。
+    shiftRowsAndMerges(cargo.xml, cargoFooterStart, cargoShift);
+
+    const cargoFooterAfter = cargo.api.getRow(cargoFooterStart + cargoShift);
+    if (!cargoFooterAfter) throw new Error('貨櫃清單固定內容移動失敗');
+
+    const sourceRow1 = cargo.api.getRow(13);
+    const sourceRow2 = cargo.api.getRow(14);
+    if (!sourceRow1 || !sourceRow2) {
+      throw new Error('貨櫃清單範本找不到第 13、14 列資料樣板');
+    }
+
+    const sheetDataEl = cargo.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
+    if (!sheetDataEl) throw new Error('貨櫃清單找不到 sheetData');
+
+    const mergeCellsEl = cargo.xml.documentElement.getElementsByTagNameNS(NS,'mergeCells')[0];
+    const originalMerges = mergeCellsEl
+      ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x => x.getAttribute('ref'))
+      : [];
+
+    // 第13~14列的所有合併，例如 A13:A14、B13:B14、...、J13:J14。
+    const dataMerges = originalMerges.filter(ref => {
+      const nums = (String(ref).match(/\d+/g) || []).map(Number);
+      return nums.length && Math.min(...nums) >= 13 && Math.max(...nums) <= 14;
+    });
+
+    // 每增加一筆，複製一組 2 列。
+    for (let i = 0; i < cargoExtra; i++) {
+      const newRow1 = 15 + i * 2;
+      const newRow2 = newRow1 + 1;
+      const manifestRow = 16 + cargoTemplateCount + i;
+
+      const clone1 = sourceRow1.cloneNode(true);
+      const clone2 = sourceRow2.cloneNode(true);
+      clone1.setAttribute('r', String(newRow1));
+      clone2.setAttribute('r', String(newRow2));
+
+      // 將兩列的儲存格座標改成新列號，公式則依 Template 第13/14列的公式
+      // 往艙單下一筆延伸。
+      for (const [clone, newRow] of [[clone1, newRow1], [clone2, newRow2]]) {
+        for (const cell of Array.from(clone.getElementsByTagNameNS(NS,'c'))) {
+          const oldRef = cell.getAttribute('r');
+          if (!oldRef) continue;
+
+          const ref = splitRef(oldRef);
+          cell.setAttribute('r', `${ref.col}${newRow}`);
+
+          const f = cell.getElementsByTagNameNS(NS,'f')[0];
+          if (f) {
+            f.textContent = f.textContent.replace(
+              /進口艙單印1份!([A-Z]{1,3})18\b/g,
+              (_, col) => `進口艙單印1份!${col}${manifestRow}`
+            );
+
+            // 清除舊公式快取，讓 Excel 開啟時重新計算。
+            for (const v of Array.from(cell.getElementsByTagNameNS(NS,'v'))) {
+              cell.removeChild(v);
+            }
+            const v = cargo.xml.createElementNS(NS,'v');
+            v.textContent = '';
+            cell.appendChild(v);
+          }
+        }
+      }
+
+      sheetDataEl.insertBefore(clone1, cargoFooterAfter);
+      sheetDataEl.insertBefore(clone2, cargoFooterAfter);
+
+      // 複製第13~14列原本的合併結構到新的兩列。
+      if (mergeCellsEl) {
+        for (const ref of dataMerges) {
+          const shifted = ref.replace(
+            /(\d+)/g,
+            m => String(Number(m) + (newRow1 - 13))
+          );
+          const exists = Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
+            .some(mc => mc.getAttribute('ref') === shifted);
+
+          if (!exists) {
+            const mc = cargo.xml.createElementNS(NS,'mergeCell');
+            mc.setAttribute('ref', shifted);
+            mergeCellsEl.appendChild(mc);
+          }
+        }
+      }
+    }
+
+    if (mergeCellsEl) {
+      mergeCellsEl.setAttribute(
+        'count',
+        String(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell').length)
+      );
+    }
+  }
+
+  // 每一筆資料都依照最新 Template 原本的公式模式，
+  // 只將艙單來源列號由16、17、18往後延伸。
+  // 第一列是項次與主要資料；第二列是同一貨櫃的延伸資料。
+  for (let i = 0; i < items.length; i++) {
+    const r1 = cargoStart + i * 2;
+    const r2 = r1 + 1;
+    const mrow = 16 + i;
+
+    cargo.api.setValue(`A${r1}`, i + 1);
+
+    cargo.api.setFormula(`B${r1}`, `=進口艙單印1份!E${mrow}`, '');
+    cargo.api.setFormula(`C${r1}`, `=進口艙單印1份!P${mrow}`, '');
+    cargo.api.setFormula(`D${r1}`, `=進口艙單印1份!B${mrow}`, '');
+    cargo.api.setFormula(`E${r1}`, `=進口艙單印1份!C${mrow}`, '');
+    cargo.api.setFormula(`F${r1}`, `=進口艙單印1份!D${mrow}`, '');
+    cargo.api.setFormula(`G${r1}`, `=B${r1}`, '');
+    cargo.api.setFormula(`H${r1}`, `=進口艙單印1份!U${mrow}`, '');
+
+    // 第二列 G 欄是範例原本的公式：抓艙單 I 欄重量。
+    cargo.api.setFormula(`G${r2}`, `=進口艙單印1份!I${mrow}`, '');
+
+    // J 欄依 Template 原本固定為 ESN500；I 欄進出站註記保留範例狀態。
+    cargo.api.setValue(`J${r1}`, 'ESN500');
+  }
+
+  // Template 3筆時為 A1:J19；每增加1筆貨櫃會增加2列。
+  const cargoPrintEnd = 19 + cargoExtra * cargoRowsPerItem;
+  for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
+    const name = dn.getAttribute('name');
+    const text = String(dn.textContent || '');
+    if (name === '_xlnm.Print_Area' && text.includes('貨櫃清單0638s-1份')) {
+      dn.textContent = `'貨櫃清單0638s-1份'!$A$1:$J$${cargoPrintEnd}`;
+    }
+  }
+
+  const cargoDimension = cargo.xml.documentElement.getElementsByTagNameNS(NS,'dimension')[0];
+  if (cargoDimension && cargoDimension.getAttribute('ref')) {
+    const old = cargoDimension.getAttribute('ref');
+    cargoDimension.setAttribute(
+      'ref',
+      old.replace(/(\d+)$/, m => String(Number(m) + cargoExtra * cargoRowsPerItem))
+    );
+  }
+
   const appDimension = application.xml.documentElement.getElementsByTagNameNS(NS,'dimension')[0];
   if (appDimension && appDimension.getAttribute('ref')) {
     const old = appDimension.getAttribute('ref');
@@ -1672,10 +1833,11 @@ async function buildManifestXlsx(loc) {
     }
   }
 
-  // 第一階段只寫回 T1、建船資料檔與艙單；不碰其他工作表。
+  // 目前寫回建船資料檔、艙單、T1、准單（紅紙）、准單申請與貨櫃清單；運送單仍暫不處理。
   zip.file(t1.target, serializer.serializeToString(t1.xml));
   zip.file(red.target, serializer.serializeToString(red.xml));
   zip.file(application.target, serializer.serializeToString(application.xml));
+  zip.file(cargo.target, serializer.serializeToString(cargo.xml));
   zip.file(shipTarget, serializer.serializeToString(shipXml));
   zip.file(sheetTarget, serializer.serializeToString(sheetXml));
   zip.file('xl/workbook.xml', serializer.serializeToString(workbookXml));
