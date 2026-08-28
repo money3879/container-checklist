@@ -156,6 +156,21 @@ main { padding:16px; padding-bottom:90px }
 }
 .toast.show { opacity:1; transform:translateX(-50%) translateY(0) }
 .toast.warn { background:var(--amber); border-color:var(--amber) }
+
+.manage-toolbar{background:#f4f8fb;border:1px solid rgba(26,123,191,.22);border-radius:12px;padding:12px;margin-bottom:14px}
+.grouping-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.grouping-row label{font-size:.78rem;font-weight:800;color:#333}
+.grouping-row select{padding:8px 10px;border:1.5px solid rgba(0,0,0,.15);border-radius:8px;background:#fff;font:inherit;font-size:.8rem;color:#111;min-width:170px}
+#group-hint{font-size:.7rem;color:#777}
+.toolbar-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.toolbar-btn{border-radius:8px;padding:8px 12px;font:inherit;font-size:.76rem;font-weight:800;cursor:pointer}
+.import-btn{background:#fff;border:1px solid var(--cyan);color:var(--cyan)}
+.add-btn{background:var(--cyan);border:1px solid var(--cyan);color:#fff}
+@media(max-width:600px){.grouping-row{align-items:stretch}.grouping-row label{width:100%}.grouping-row select{width:100%}#group-hint{width:100%}.toolbar-actions{width:100%}.toolbar-btn{flex:1}}
+.import-preview{margin-top:10px;max-height:220px;overflow:auto;border:1px solid #ddd;border-radius:8px}
+.import-preview table{width:100%;border-collapse:collapse;font-size:.68rem;white-space:nowrap}
+.import-preview th,.import-preview td{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}
+.import-preview th{position:sticky;top:0;background:#f4f8fb;font-weight:800}
 </style>
 </head>
 <body>
@@ -168,11 +183,22 @@ main { padding:16px; padding-bottom:90px }
 </div>
 
 <main>
-  <div style="font-size:.76rem;color:#777;margin:0 2px 12px">依卸存地分組，同一卸存地內依艙號由小到大排序</div>
+  <div class="manage-toolbar">
+    <div class="grouping-row">
+      <label for="group-mode">分類方式</label>
+      <select id="group-mode">
+        <option value="location" selected>依卸存地分類</option>
+        <option value="name">依原本收貨人名稱分類</option>
+      </select>
+      <span id="group-hint">同一卸存地內依艙號由小到大排序</span>
+    </div>
+    <div class="toolbar-actions">
+      <button type="button" class="toolbar-btn import-btn" onclick="openImportConsignees()">匯入多筆收貨人</button>
+      <button type="button" class="toolbar-btn add-btn" onclick="openAddConsignee()">＋ 新增收貨人</button>
+    </div>
+  </div>
   <div id="list"></div>
 </main>
-
-<button class="fab" onclick="openAddConsignee()">＋</button>
 
 <!-- ════ ADD CONSIGNEE (new name + first location) ════ -->
 <div class="dlg-overlay" id="dlg-add-consignee">
@@ -183,57 +209,39 @@ main { padding:16px; padding-bottom:90px }
       <label>收貨人名稱 *</label>
       <input type="text" id="nc-name" placeholder="需與 Excel「收货人」欄位完全一致">
       <div class="field-hint">英文名稱需與原始 Excel 裡的「收货人」欄位完全相同，才能自動比對</div>
-    </div>
-
-    <div class="field">
+    </div><div class="field">
       <label>中文全名</label>
       <input type="text" id="nc-chinesename" placeholder="例如：捷豐國際物流股份有限公司">
       <div class="field-hint">用於 T1「收貨人 (中/英文公司名稱)」的中文名稱</div>
-    </div>
-
-    <div class="field">
-      <label>標準英文地址</label>
-      <textarea id="nc-address" placeholder="例如：9F.-1, No. 268, Sec. 2, Fuxing S. Rd., Da'an Dist., Taipei City 10663, Taiwan"></textarea>
-    </div>
-
-    <div class="field">
-      <label>統一編號</label>
-      <input type="text" id="nc-taxid" placeholder="例如：24951752">
-    </div>
-
-    <div class="field">
-      <label>聯絡人資訊</label>
-      <textarea id="nc-contact" placeholder="例如：2 25148667&#10;WU,JIA-HUA" style="min-height:56px"></textarea>
-      <div class="field-hint">可多行輸入，會自動保留換行</div>
-    </div>
-
-    <div class="field">
+    </div><div class="field">
       <label>中文簡稱</label>
       <input type="text" id="nc-shortname" placeholder="例如：捷豐">
       <div class="field-hint">用於艙單內部欄位，簡短即可</div>
-    </div>
-
-    <div class="field">
-      <label>卸存地 *</label>
-      <input type="text" id="nc-location" placeholder="例如 KHH0638S" style="text-transform:uppercase">
-    </div>
-
-    <div class="field">
+    </div><div class="field">
+      <label>統一編號</label>
+      <input type="text" id="nc-taxid" placeholder="例如：24951752">
+    </div><div class="field">
+      <label>聯絡人資訊</label>
+      <textarea id="nc-contact" placeholder="例如：2 25148667&#10;WU,JIA-HUA" style="min-height:56px"></textarea>
+      <div class="field-hint">可多行輸入，會自動保留換行</div>
+    </div><div class="field">
+      <label>標準英文地址</label>
+      <textarea id="nc-address" placeholder="例如：9F.-1, No. 268, Sec. 2, Fuxing S. Rd., Da'an Dist., Taipei City 10663, Taiwan"></textarea>
+    </div><div class="field">
       <label>艙號起始值 *</label>
       <input type="number" id="nc-seal" placeholder="例如 5501">
       <div class="field-hint">系統會依提單號順序，從這個號碼開始遞增</div>
-    </div>
-
-    <div class="field">
+    </div><div class="field">
+      <label>卸存地 *</label>
+      <input type="text" id="nc-location" placeholder="例如 KHH0638S" style="text-transform:uppercase">
+    </div><div class="field">
       <label>件數單位</label>
       <select id="nc-unit" style="width:100%;padding:10px 12px;border:1.5px solid rgba(0,0,0,.15);border-radius:8px;font-size:.88rem;font-family:inherit;color:#111111;outline:none;background:#ffffff">
         <option value="PKG">PKG</option>
         <option value="CTN">CTN</option>
       </select>
       <div class="field-hint">大部分收貨人用 PKG，少數用 CTN</div>
-    </div>
-
-    <div class="dlg-error" id="nc-error"></div>
+    </div><div class="dlg-error" id="nc-error"></div>
 
     <div class="dlg-btns">
       <button class="dlg-cancel" onclick="closeDlg('dlg-add-consignee')">取消</button>
@@ -332,8 +340,26 @@ main { padding:16px; padding-bottom:90px }
   </div>
 </div>
 
+
+<div class="dlg-overlay" id="dlg-import-consignees">
+  <div class="dlg-box" style="max-width:620px">
+    <h3>匯入多筆收貨人</h3>
+    <div style="font-size:.72rem;color:#666;line-height:1.6;margin-bottom:10px">
+      Excel 第一列欄位必須為：收貨人英文名稱／收貨人中文名稱／收貨人中文簡稱／統編／聯絡人資訊／英文地址／艙號起始值／卸存地／件數單位
+    </div>
+    <input type="file" id="consignee-excel-file" accept=".xlsx,.xls,.csv" style="width:100%;padding:8px">
+    <div id="import-status" style="font-size:.72rem;color:#555;margin-top:8px"></div>
+    <div id="import-error" class="dlg-error"></div>
+    <div id="import-preview" class="import-preview"></div>
+    <div class="dlg-btns">
+      <button class="dlg-cancel" onclick="closeDlg('dlg-import-consignees')">取消</button>
+      <button class="dlg-ok" id="import-submit" onclick="submitImportedConsignees()" disabled>開始匯入</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 const SB_URL = 'https://ruziacdggdfyvlbcjnan.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1emlhY2RnZ2RmeXZsYmNqbmFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzE1OTEsImV4cCI6MjEwMDQ0NzU5MX0.3P7SzY2EfKtUTcuaBB0fMY0FOIdp_X3KmkfRnL8wuSg';
@@ -372,69 +398,77 @@ async function loadConsignees() {
 }
 
 function groupData() {
-  // 顯示方式改為「卸存地 → 收貨人」，方便先找到卸存地，再依艙號找收貨人。
   const map = {};
   rawRows.forEach(r => {
     const location = (r.location || '').trim().toUpperCase() || '未設定卸存地';
     if (!map[location]) map[location] = { location, rows: [] };
     map[location].rows.push({
-      id: r.id,
-      name: r.name || '',
-      chineseName: r.chinese_name || '',
-      address: r.address || '',
-      taxId: r.tax_id || '',
-      contactInfo: r.contact_info || '',
-      shortName: r.short_name || '',
-      seal_start: Number(r.seal_start) || 0,
-      unit: r.unit || 'PKG'
+      id:r.id, name:r.name||'', chineseName:r.chinese_name||'', address:r.address||'',
+      taxId:r.tax_id||'', contactInfo:r.contact_info||'', shortName:r.short_name||'',
+      seal_start:Number(r.seal_start)||0, unit:r.unit||'PKG'
     });
   });
-
-  // 卸存地依名稱排序；同一卸存地內依艙號由小到大。
-  grouped = Object.values(map).sort((a, b) => a.location.localeCompare(b.location, 'zh-Hant', { numeric: true }));
-  grouped.forEach(g => g.rows.sort((a, b) => {
-    if (a.seal_start !== b.seal_start) return a.seal_start - b.seal_start;
-    return a.name.localeCompare(b.name, 'en', { numeric: true });
-  }));
+  grouped=Object.values(map).sort((a,b)=>a.location.localeCompare(b.location,'zh-Hant',{numeric:true}));
+  grouped.forEach(g=>g.rows.sort((a,b)=>a.seal_start-b.seal_start || a.name.localeCompare(b.name,'en',{numeric:true})));
 }
 
 function render() {
-  const listEl = document.getElementById('list');
-  if (!grouped.length) {
-    listEl.innerHTML = `<div class="empty">
-      <div class="ico">📇</div>
-      尚未有收貨人資料<br>
-      <span style="font-size:.78rem">點右下角「＋」新增第一筆</span>
-    </div>`;
-    return;
-  }
-
-  listEl.innerHTML = grouped.map(g => `
-    <div class="location-card">
-      <div class="location-title">
-        <div class="location-title-main">📍 ${escapeHtml(g.location)}</div>
-        <div class="location-count">${g.rows.length} 家收貨人</div>
-      </div>
-      ${g.rows.map(r => `
-        <div class="loc-row">
-          <div class="loc-info">
-            <div class="consignee-mini">${escapeHtml(r.chineseName || r.name)}</div>
+  const listEl=document.getElementById('list');
+  if(!grouped.length){listEl.innerHTML='<div class="empty"><div class="ico">📇</div>尚未有收貨人資料</div>';return;}
+  if((document.getElementById('group-mode')?.value||'location')==='name'){
+    const map={};
+    rawRows.forEach(r=>{
+      const key=r.name||'未設定名稱';
+      (map[key] ||= []).push(r);
+    });
+    const names=Object.keys(map).sort((a,b)=>a.localeCompare(b,'en',{numeric:true}));
+    listEl.innerHTML=names.map(name=>{
+      const rows=map[name].slice().sort((a,b)=>
+        String(a.location||'').localeCompare(String(b.location||''),'zh-Hant',{numeric:true}) ||
+        (Number(a.seal_start)||0)-(Number(b.seal_start)||0));
+      const r=rows[0];
+      return `<div class="location-card">
+        <div class="cc-header">
+          <div>
+            <div class="cc-name">${escapeHtml(r.chinese_name||r.name)}</div>
             <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
             <div class="consignee-meta">
-              <span class="seal-badge">艙號 ${escapeHtml(String(r.seal_start))}</span>
-              <span>單位：<b>${escapeHtml(r.unit)}</b></span>
-              ${r.shortName ? `<span>簡稱：<b>${escapeHtml(r.shortName)}</b></span>` : ''}
-              ${r.taxId ? `<span>統編：<b>${escapeHtml(r.taxId)}</b></span>` : ''}
-              ${r.contactInfo ? `<span>聯絡人：<b>${escapeHtml(r.contactInfo).replace(/\n/g,' / ')}</b></span>` : ''}
+              ${r.short_name?`<span>簡稱：<b>${escapeHtml(r.short_name)}</b></span>`:''}
+              ${r.tax_id?`<span>統編：<b>${escapeHtml(r.tax_id)}</b></span>`:''}
+              ${r.contact_info?`<span>聯絡人：<b>${escapeHtml(r.contact_info).replace(/\n/g,' / ')}</b></span>`:''}
             </div>
           </div>
-          <div class="loc-actions">
-            <button class="loc-btn loc-btn-edit" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
-            <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${r.id}','${escapeAttr(r.name)}','${escapeAttr(g.location)}')">刪除</button>
-          </div>
+          <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
         </div>
-      `).join('')}
-    </div>`).join('');
+        ${rows.map(x=>`<div class="loc-row"><div class="loc-info">
+          <div><span class="seal-badge">艙號 ${escapeHtml(String(x.seal_start))}</span> ・ 卸存地：<b>${escapeHtml(x.location)}</b> ・ 單位：<b>${escapeHtml(x.unit)}</b></div>
+        </div><div class="loc-actions">
+          <button class="loc-btn loc-btn-edit" onclick="openEditLocation('${x.id}','${escapeAttr(x.name)}')">編輯</button>
+          <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${x.id}','${escapeAttr(x.name)}','${escapeAttr(x.location)}')">刪除</button>
+        </div></div>`).join('')}
+      </div>`;
+    }).join('');
+    return;
+  }
+  listEl.innerHTML=grouped.map(g=>`<div class="location-card">
+    <div class="location-title">
+      <div class="location-title-main">📍 ${escapeHtml(g.location)}</div>
+      <div class="location-count">${g.rows.length} 家收貨人</div>
+    </div>
+    ${g.rows.map(r=>`<div class="loc-row"><div class="loc-info">
+      <div class="consignee-mini">${escapeHtml(r.chineseName||r.name)}</div>
+      <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
+      <div class="consignee-meta"><span class="seal-badge">艙號 ${escapeHtml(String(r.seal_start))}</span>
+        <span>單位：<b>${escapeHtml(r.unit)}</b></span>
+        ${r.shortName?`<span>簡稱：<b>${escapeHtml(r.shortName)}</b></span>`:''}
+        ${r.taxId?`<span>統編：<b>${escapeHtml(r.taxId)}</b></span>`:''}
+        ${r.contactInfo?`<span>聯絡人：<b>${escapeHtml(r.contactInfo).replace(/\n/g,' / ')}</b></span>`:''}
+      </div>
+    </div><div class="loc-actions">
+      <button class="loc-btn loc-btn-edit" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
+      <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${r.id}','${escapeAttr(r.name)}','${escapeAttr(g.location)}')">刪除</button>
+    </div></div>`).join('')}
+  </div>`).join('');
 }
 
 function escapeHtml(s) {
@@ -455,6 +489,9 @@ function openAddConsignee() {
   document.getElementById('nc-name').value = '';
   document.getElementById('nc-chinesename').value = '';
   document.getElementById('nc-address').value = '';
+  document.getElementById('nc-taxid').value = '';
+  document.getElementById('nc-contact').value = '';
+  document.getElementById('nc-shortname').value = '';
   document.getElementById('nc-location').value = '';
   document.getElementById('nc-seal').value = '';
   document.getElementById('nc-unit').value = 'PKG';
@@ -627,7 +664,11 @@ async function submitLocation() {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ name: g.name, address: g.address, location, seal_start: parseInt(seal) })
+        body: JSON.stringify({
+          name: g.name, chinese_name: g.rows[0]?.chineseName || '', address: g.rows[0]?.address || '',
+          tax_id: g.rows[0]?.taxId || '', contact_info: g.rows[0]?.contactInfo || '',
+          short_name: g.rows[0]?.shortName || '', location, seal_start: parseInt(seal), unit
+        })
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -685,6 +726,87 @@ function toast(msg, warn=false) {
   t._t = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
+
+let importedConsigneeRows=[];
+
+function openImportConsignees(){
+  importedConsigneeRows=[];
+  document.getElementById('consignee-excel-file').value='';
+  document.getElementById('import-status').textContent='請選擇 Excel 檔案';
+  document.getElementById('import-error').textContent='';
+  document.getElementById('import-preview').innerHTML='';
+  document.getElementById('import-submit').disabled=true;
+  document.getElementById('dlg-import-consignees').classList.add('show');
+}
+
+document.getElementById('group-mode')?.addEventListener('change',function(){
+  document.getElementById('group-hint').textContent=this.value==='location'
+    ? '同一卸存地內依艙號由小到大排序'
+    : '依原本收貨人名稱分類，同一家公司可看到不同卸存地';
+  render();
+});
+
+document.getElementById('consignee-excel-file')?.addEventListener('change',async function(){
+  const file=this.files?.[0]; if(!file)return;
+  const err=document.getElementById('import-error'), status=document.getElementById('import-status');
+  const preview=document.getElementById('import-preview'), submit=document.getElementById('import-submit');
+  err.textContent=''; submit.disabled=true;
+  try{
+    if(!window.XLSX)throw new Error('Excel 讀取模組尚未載入');
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+    const cols=['收貨人英文名稱','收貨人中文名稱','收貨人中文簡稱','統編','聯絡人資訊','英文地址','艙號起始值','卸存地','件數單位'];
+    if(!rows.length)throw new Error('Excel 沒有資料');
+    const missing=cols.filter(c=>!(c in rows[0]));
+    if(missing.length)throw new Error('缺少欄位：'+missing.join('、'));
+    importedConsigneeRows=rows.map((r,i)=>({
+      name:String(r['收貨人英文名稱']??'').trim(),
+      chinese_name:String(r['收貨人中文名稱']??'').trim(),
+      short_name:String(r['收貨人中文簡稱']??'').trim(),
+      tax_id:String(r['統編']??'').trim(),
+      contact_info:String(r['聯絡人資訊']??'').trim(),
+      address:String(r['英文地址']??'').trim(),
+      seal_start:parseInt(String(r['艙號起始值']??'').trim(),10),
+      location:String(r['卸存地']??'').trim().toUpperCase(),
+      unit:String(r['件數單位']??'PKG').trim().toUpperCase()||'PKG'
+    }));
+    const bad=importedConsigneeRows.findIndex(r=>!r.name||!r.location||!Number.isFinite(r.seal_start)||!['PKG','CTN'].includes(r.unit));
+    if(bad>=0)throw new Error(`第 ${bad+2} 列資料不完整：英文名稱、卸存地、艙號起始值、件數單位請檢查`);
+    status.textContent=`已讀取 ${importedConsigneeRows.length} 筆，可按「開始匯入」寫入 Supabase`;
+    preview.innerHTML='<table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>'+
+      importedConsigneeRows.slice(0,10).map(r=>`<tr>
+      <td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.chinese_name)}</td><td>${escapeHtml(r.short_name)}</td>
+      <td>${escapeHtml(r.tax_id)}</td><td>${escapeHtml(r.contact_info)}</td><td>${escapeHtml(r.address)}</td>
+      <td>${escapeHtml(String(r.seal_start))}</td><td>${escapeHtml(r.location)}</td><td>${escapeHtml(r.unit)}</td></tr>`).join('')+
+      '</tbody></table>';
+    submit.disabled=false;
+  }catch(e){importedConsigneeRows=[];err.textContent='讀取失敗：'+(e.message||e);}
+});
+
+async function submitImportedConsignees(){
+  if(!importedConsigneeRows.length)return;
+  const btn=document.getElementById('import-submit'),err=document.getElementById('import-error');
+  btn.disabled=true;btn.textContent='匯入中…';err.textContent='';
+  try{
+    const res=await fetch(`${SB_URL}/rest/v1/consignees`,{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify(importedConsigneeRows)
+    });
+    if(!res.ok){
+      const tx=await res.text();
+      if(/duplicate|unique/i.test(tx))throw new Error('Excel 中有重複資料，或資料庫已有相同收貨人／卸存地組合');
+      throw new Error(tx);
+    }
+    const n=importedConsigneeRows.length;
+    importedConsigneeRows=[];
+    closeDlg('dlg-import-consignees');
+    await loadConsignees();
+    toast(`✅ 已匯入 ${n} 筆收貨人`);
+  }catch(e){err.textContent='匯入失敗：'+(e.message||'請稍後再試');}
+  finally{btn.textContent='開始匯入';btn.disabled=importedConsigneeRows.length===0;}
+}
 loadConsignees();
 </script>
 </body>
