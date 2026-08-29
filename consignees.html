@@ -812,25 +812,64 @@ document.getElementById('consignee-excel-file')?.addEventListener('change',async
   }catch(e){importedConsigneeRows=[];err.textContent='讀取失敗：'+(e.message||e);}
 });
 
-async function submitImportedConsignees(){
-  if(!importedConsigneeRows.length)return;
-  const btn=document.getElementById('import-submit'),err=document.getElementById('import-error');
-  btn.disabled=true;btn.textContent='匯入中…';err.textContent='';
-  try{
-    const res=await fetch(`${SB_URL}/rest/v1/consignees`,{
-      method:'POST',
-      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
-      body:JSON.stringify(importedConsigneeRows)
+async function submitImportedConsignees() {
+  if (!importedConsigneeRows.length) return;
+
+  const btn = document.getElementById('import-consignee-submit');
+  const err = document.getElementById('import-consignee-error');
+  btn.disabled = true;
+  btn.textContent = '匯入中…';
+  err.textContent = '';
+
+  try {
+    // _row 只供前端顯示 Excel 第幾列，絕對不送進 Supabase。
+    // 明確建立資料庫 payload，避免任何前端輔助欄位混入。
+    const payload = importedConsigneeRows.map(r => ({
+      name: String(r.name ?? '').trim(),
+      chinese_name: String(r.chinese_name ?? '').trim(),
+      short_name: String(r.short_name ?? '').trim(),
+      tax_id: String(r.tax_id ?? '').trim(),
+      contact_info: String(r.contact_info ?? '').trim(),
+      address: String(r.address ?? '').trim(),
+      taiwan_notify_name: String(r.taiwan_notify_name ?? '').trim(),
+      seal_start: Number(r.seal_start),
+      location: String(r.location ?? '').trim().toUpperCase(),
+      unit: String(r.unit ?? 'PKG').trim().toUpperCase() || 'PKG'
+    }));
+
+    const res = await fetch(`${SB_URL}/rest/v1/consignees`, {
+      method: 'POST',
+      headers: {
+        'apikey': SB_KEY,
+        'Authorization': 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(payload)
     });
-    if(!res.ok){
-      const tx=await res.text();
-      if(/duplicate|unique/i.test(tx))throw new Error('資料庫目前仍有不允許同一家廠商多筆資料的 UNIQUE 約束，請先執行台灣通知人資料庫調整 SQL；Excel 本身的不同卸存地／艙號資料可以保留多筆。');
-      throw new Error(tx);
+
+    if (!res.ok) {
+      const t = await res.text();
+      if (t.includes('duplicate') || t.includes('unique')) {
+        throw new Error('匯入中有重複資料，請檢查收貨人、卸存地、艙號或台灣通知人。');
+      }
+      throw new Error(t);
     }
-    const n=importedConsigneeRows.length;
-    importedConsigneeRows=[];
+
+    const count = payload.length;
+    importedConsigneeRows = [];
     closeDlg('dlg-import-consignees');
     await loadConsignees();
+    toast(`✅ 已匯入 ${count} 筆收貨人`);
+  } catch (e) {
+    err.textContent = '匯入失敗：' + (e.message || '請稍後再試');
+  } finally {
+    btn.textContent = '開始匯入';
+    btn.disabled = importedConsigneeRows.length === 0;
+  }
+}
+
+loadConsignees();
     toast(`✅ 已匯入 ${n} 筆收貨人`);
   }catch(e){err.textContent='匯入失敗：'+(e.message||'請稍後再試');}
   finally{btn.textContent='開始匯入';btn.disabled=importedConsigneeRows.length===0;}
