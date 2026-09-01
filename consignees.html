@@ -1,3 +1,8 @@
+<!--
+本次使用基準：08290135(1).zip → consignees.html
+Excel 格式參考：收貨人 - 000.xlsx
+本階段：只處理 consignees.html 的台灣通知人輸入／匯入／儲存
+-->
 <!DOCTYPE html>
 <html lang="zh-TW" style="background:#ffffff;color-scheme:light">
 <head>
@@ -792,7 +797,7 @@ async function submitImportedConsignees(){
     const res=await fetch(`${SB_URL}/rest/v1/consignees`,{
       method:'POST',
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
-      body:JSON.stringify(importedConsigneeRows)
+      body:JSON.stringify(buildConsigneeImportDbPayload(importedConsigneeRows))
     });
     if(!res.ok){
       const tx=await res.text();
@@ -809,5 +814,26 @@ async function submitImportedConsignees(){
 }
 loadConsignees();
 </script>
+
+<script>
+function buildConsigneeDbPayload(row) {
+  return {
+    name: String(row.name ?? '').trim(),
+    chinese_name: String(row.chinese_name ?? '').trim(),
+    short_name: String(row.short_name ?? '').trim(),
+    tax_id: String(row.tax_id ?? '').trim(),
+    contact_info: String(row.contact_info ?? '').trim(),
+    address: String(row.address ?? '').trim(),
+    taiwan_notify_name: String(row.taiwan_notify_name ?? '').trim(),
+    seal_start: Number(row.seal_start),
+    location: String(row.location ?? '').trim().toUpperCase(),
+    unit: String(row.unit ?? 'PKG').trim().toUpperCase() || 'PKG'
+  };
+}
+function buildConsigneeImportDbPayload(rows) {
+  return rows.map(buildConsigneeDbPayload);
+}
+</script>
+
 </body>
 </html>
