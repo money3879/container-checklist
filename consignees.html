@@ -459,7 +459,6 @@ function render() {
               ${r.short_name?`<span>簡稱：<b>${escapeHtml(r.short_name)}</b></span>`:''}
               ${r.tax_id?`<span>統編：<b>${escapeHtml(r.tax_id)}</b></span>`:''}
               ${r.contact_info?`<span>聯絡人：<b>${escapeHtml(r.contact_info).replace(/\n/g,' / ')}</b></span>`:''}
-              ${r.taiwan_notify_name?`<span>台灣通知人：<b>${escapeHtml(r.taiwan_notify_name)}</b></span>`:''}
             </div>
           </div>
           <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
@@ -848,18 +847,19 @@ loadConsignees();
 
 <script>
 (function(){
-  function bindOutsideClose(id){
-    const overlay = document.getElementById(id);
+  // 所有對話框統一支援：點擊灰色外部遮罩即可關閉。
+  function bindOutsideClose(overlay){
     if(!overlay || overlay.dataset.outsideCloseBound) return;
     overlay.dataset.outsideCloseBound = '1';
     overlay.addEventListener('click', function(e){
-      if(e.target === overlay) closeDlg(id);
+      if(e.target === overlay) closeDlg(overlay.id);
     });
   }
-  document.addEventListener('DOMContentLoaded', function(){
-    bindOutsideClose('dlg-add-consignee');
-    bindOutsideClose('dlg-import-consignees');
-  });
+  function bindAll(){
+    document.querySelectorAll('.dlg-overlay').forEach(bindOutsideClose);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindAll);
+  else bindAll();
 })();
 </script>
 
