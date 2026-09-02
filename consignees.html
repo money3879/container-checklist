@@ -493,7 +493,7 @@ function render() {
           <div>
             <div class="cc-name">${escapeHtml(r.chinese_name||r.name)}</div>
             <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
-            ${r.taiwan_notify_name?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwan_notify_name)}</div>`:''}
+            ${r.taiwanNotifyName?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwanNotifyName)}</div>`:''}
             <div class="consignee-meta">
               ${r.short_name?`<span>簡稱：<b>${escapeHtml(r.short_name)}</b></span>`:''}
               ${r.tax_id?`<span>統編：<b>${escapeHtml(r.tax_id)}</b></span>`:''}
@@ -520,7 +520,7 @@ function render() {
     ${g.rows.map(r=>`<div class="loc-row"><div class="loc-info">
       <div class="consignee-mini">${escapeHtml(r.chineseName||r.name)}</div>
       <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
-      ${r.taiwan_notify_name?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwan_notify_name)}</div>`:''}
+      ${r.taiwanNotifyName?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwanNotifyName)}</div>`:''}
       <div class="consignee-meta"><span class="seal-badge">艙號 ${escapeHtml(String(r.seal_start))}</span>
         <span>單位：<b>${escapeHtml(r.unit)}</b></span>
         ${r.shortName?`<span>簡稱：<b>${escapeHtml(r.shortName)}</b></span>`:''}
