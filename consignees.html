@@ -105,7 +105,16 @@ main { padding:16px; padding-bottom:90px }
 .consignee-meta { display:flex; gap:10px; flex-wrap:wrap; margin-top:5px; font-size:.68rem; color:#777; }
 .seal-badge { display:inline-flex; align-items:center; padding:3px 7px; border-radius:5px; background:#eaf5fc; color:#1a7bbf; font-family:var(--mono); font-weight:800; }
 /* ── CONSIGNEE EXCEL IMPORT ── */
-.import-dlg-box { max-width:620px; }
+.import-dlg-box {
+  width:min(92vw, 820px);
+  max-width:820px;
+}
+@media (min-width: 900px){
+  .import-dlg-box { width:min(82vw, 900px); max-width:900px; }
+}
+@media (max-width: 600px){
+  .import-dlg-box { width:94vw; max-width:none; padding:20px 16px 16px; }
+}
 .import-hint { font-size:.72rem; color:#666; line-height:1.6; margin-bottom:10px; }
 .consignee-dropzone {
   border:2px dashed rgba(0,0,0,.15); border-radius:10px; padding:28px 16px;
@@ -484,7 +493,7 @@ function render() {
           <div>
             <div class="cc-name">${escapeHtml(r.chinese_name||r.name)}</div>
             <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
-            ${r.taiwanNotifyName?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwanNotifyName)}</div>`:''}
+            ${r.taiwan_notify_name?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwan_notify_name)}</div>`:''}
             <div class="consignee-meta">
               ${r.short_name?`<span>簡稱：<b>${escapeHtml(r.short_name)}</b></span>`:''}
               ${r.tax_id?`<span>統編：<b>${escapeHtml(r.tax_id)}</b></span>`:''}
