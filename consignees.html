@@ -1,8 +1,8 @@
 <!--
-本次使用基準：08290135(1).zip → consignees.html
-匯入介面參考：08290135(1).zip → manifest-import.html
-Excel 格式參考：收貨人 - 000.xlsx
-本階段：第一階段－台灣通知人輸入／匯入／儲存
+本次修改基準：目前工作區最新 consignees.html（對應 09020824 更新後版本）
+本階段：
+1. 英文名稱下一列顯示台灣通知人（灰色文字）
+2. 單筆新增／多筆匯入對話框：點擊對話框外部關閉
 -->
 <!DOCTYPE html>
 <html lang="zh-TW" style="background:#ffffff;color-scheme:light">
@@ -173,10 +173,6 @@ main { padding:16px; padding-bottom:90px }
 .import-btn{background:#fff;border:1px solid var(--cyan);color:var(--cyan)}
 .add-btn{background:var(--cyan);border:1px solid var(--cyan);color:#fff}
 @media(max-width:600px){.grouping-row{align-items:stretch}.grouping-row label{width:100%}.grouping-row select{width:100%}#group-hint{width:100%}.toolbar-actions{width:100%}.toolbar-btn{flex:1}}
-.dzone{border:2px dashed rgba(0,0,0,.15);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:8px}
-.dzone:hover,.dzone.drag-over{border-color:var(--cyan);background:rgba(26,123,191,.04)}
-.dzone .di{font-size:1.8rem;margin-bottom:6px}.dzone p{font-size:.8rem;color:#666;margin:0}.dzone strong{color:var(--cyan)}
-.file-loaded{display:none;align-items:center;gap:10px;padding:12px 14px;background:#eef7ee;border:1px solid rgba(46,158,91,.3);border-radius:8px;font-size:.82rem;color:#1a7a3e;margin-bottom:8px}.file-loaded.show{display:flex}
 .import-preview{margin-top:10px;max-height:220px;overflow:auto;border:1px solid #ddd;border-radius:8px}
 .import-preview table{width:100%;border-collapse:collapse;font-size:.68rem;white-space:nowrap}
 .import-preview th,.import-preview td{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}
@@ -239,8 +235,8 @@ main { padding:16px; padding-bottom:90px }
       <textarea id="nc-address" placeholder="例如：9F.-1, No. 268, Sec. 2, Fuxing S. Rd., Da'an Dist., Taipei City 10663, Taiwan"></textarea>
     </div><div class="field">
       <label>台灣通知人</label>
-      <input type="text" id="nc-taiwan-notify" placeholder="通常與收貨人相同；不同時請填台灣通知人名稱">
-      <div class="field-hint">通常與收貨人相同，特殊情況可填不同台灣通知人</div>
+      <input type="text" id="nc-taiwan-notify" placeholder="若與收貨人相同，請填收貨人名稱">
+      <div class="field-hint">資料庫儲存實際名稱；艙單顯示時若與收貨人相同會自動顯示 SAME AS CONSIGNEE</div>
     </div><div class="field">
       <label>艙號起始值 *</label>
       <input type="number" id="nc-seal" placeholder="例如 5501">
@@ -286,6 +282,12 @@ main { padding:16px; padding-bottom:90px }
     </div>
 
     <div class="field">
+      <label>台灣通知人</label>
+      <input type="text" id="ec-taiwan-notify" placeholder="若與收貨人相同，請填收貨人名稱">
+      <div class="field-hint">資料庫儲存實際名稱；艙單顯示時若與收貨人相同會自動顯示 SAME AS CONSIGNEE</div>
+    </div>
+
+    <div class="field">
       <label>統一編號</label>
       <input type="text" id="ec-taxid">
     </div>
@@ -294,11 +296,6 @@ main { padding:16px; padding-bottom:90px }
       <label>聯絡人資訊</label>
       <textarea id="ec-contact" style="min-height:56px"></textarea>
       <div class="field-hint">可多行輸入，會自動保留換行</div>
-    </div>
-
-    <div class="field">
-      <label>台灣通知人</label>
-      <input type="text" id="ec-taiwan-notify" placeholder="通常與收貨人相同；不同時請填台灣通知人名稱">
     </div>
 
     <div class="field">
@@ -328,6 +325,12 @@ main { padding:16px; padding-bottom:90px }
     <div class="field">
       <label>艙號起始值 *</label>
       <input type="number" id="loc-seal" placeholder="例如 5501">
+    </div>
+
+    <div class="field">
+      <label>台灣通知人</label>
+      <input type="text" id="loc-taiwan-notify" placeholder="若與收貨人相同，請填收貨人名稱">
+      <div class="field-hint">這一筆卸存地可獨立設定台灣通知人</div>
     </div>
 
     <div class="field">
@@ -362,20 +365,11 @@ main { padding:16px; padding-bottom:90px }
 
 <div class="dlg-overlay" id="dlg-import-consignees">
   <div class="dlg-box" style="max-width:620px">
-    <h3>📥 匯入 Excel / CSV</h3>
+    <h3>匯入多筆收貨人</h3>
     <div style="font-size:.72rem;color:#666;line-height:1.6;margin-bottom:10px">
-      支援 .xlsx、.xls、.csv<br>
-      第一列欄位：收貨人英文名稱／收貨人中文名稱／收貨人中文簡稱／統編／聯絡人資訊／英文地址／台灣通知人／艙號起始值／卸存地／件數單位
+      Excel 第一列欄位必須為：收貨人英文名稱／收貨人中文名稱／收貨人中文簡稱／統編／聯絡人資訊／英文地址／台灣通知人／艙號起始值／卸存地／件數單位
     </div>
-    <div class="dzone" id="consignee-dzone" onclick="document.getElementById('consignee-excel-file').click()"
-      ondragover="consigneeDOver(event)" ondragleave="consigneeDLeave()" ondrop="consigneeDDrop(event)">
-      <div class="di">📂</div>
-      <p>點此選檔案<br><strong>或拖曳 Excel 到此</strong></p>
-    </div>
-    <input type="file" id="consignee-excel-file" accept=".xlsx,.xls,.csv">
-    <div class="file-loaded" id="consignee-file-loaded">
-      <span>✅</span><span id="consignee-file-loaded-text"></span>
-    </div>
+    <input type="file" id="consignee-excel-file" accept=".xlsx,.xls,.csv" style="width:100%;padding:8px">
     <div id="import-status" style="font-size:.72rem;color:#555;margin-top:8px"></div>
     <div id="import-error" class="dlg-error"></div>
     <div id="import-preview" class="import-preview"></div>
@@ -432,7 +426,7 @@ function groupData() {
     if (!map[location]) map[location] = { location, rows: [] };
     map[location].rows.push({
       id:r.id, name:r.name||'', chineseName:r.chinese_name||'', address:r.address||'',
-      taxId:r.tax_id||'', contactInfo:r.contact_info||'', shortName:r.short_name||'',
+      taxId:r.tax_id||'', contactInfo:r.contact_info||'', shortName:r.short_name||'', taiwanNotifyName:r.taiwan_notify_name||'',
       seal_start:Number(r.seal_start)||0, unit:r.unit||'PKG'
     });
   });
@@ -460,10 +454,12 @@ function render() {
           <div>
             <div class="cc-name">${escapeHtml(r.chinese_name||r.name)}</div>
             <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
+            ${r.taiwan_notify_name?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwan_notify_name)}</div>`:''}
             <div class="consignee-meta">
               ${r.short_name?`<span>簡稱：<b>${escapeHtml(r.short_name)}</b></span>`:''}
               ${r.tax_id?`<span>統編：<b>${escapeHtml(r.tax_id)}</b></span>`:''}
               ${r.contact_info?`<span>聯絡人：<b>${escapeHtml(r.contact_info).replace(/\n/g,' / ')}</b></span>`:''}
+              ${r.taiwan_notify_name?`<span>台灣通知人：<b>${escapeHtml(r.taiwan_notify_name)}</b></span>`:''}
             </div>
           </div>
           <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
@@ -486,6 +482,7 @@ function render() {
     ${g.rows.map(r=>`<div class="loc-row"><div class="loc-info">
       <div class="consignee-mini">${escapeHtml(r.chineseName||r.name)}</div>
       <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
+      ${r.taiwan_notify_name?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwan_notify_name)}</div>`:''}
       <div class="consignee-meta"><span class="seal-badge">艙號 ${escapeHtml(String(r.seal_start))}</span>
         <span>單位：<b>${escapeHtml(r.unit)}</b></span>
         ${r.shortName?`<span>簡稱：<b>${escapeHtml(r.shortName)}</b></span>`:''}
@@ -598,7 +595,7 @@ async function submitEditConsignee() {
   const newName = document.getElementById('ec-name').value.trim();
   const newChineseName = document.getElementById('ec-chinesename').value.trim();
   const newAddress = document.getElementById('ec-address').value.trim();
-  const newTaiwanNotify = document.getElementById('ec-taiwan-notify').value.trim();
+  const newTaiwanNotifyName = document.getElementById('ec-taiwan-notify').value.trim() || newName;
   const newTaxId = document.getElementById('ec-taxid').value.trim();
   const newContact = document.getElementById('ec-contact').value.trim();
   const newShortName = document.getElementById('ec-shortname').value.trim();
@@ -621,7 +618,7 @@ async function submitEditConsignee() {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ name: newName, chinese_name: newChineseName, address: newAddress, taiwan_notify_name: newTaiwanNotify || newName, tax_id: newTaxId, contact_info: newContact, short_name: newShortName })
+        body: JSON.stringify({ name: newName, chinese_name: newChineseName, address: newAddress, taiwan_notify_name: newTaiwanNotifyName, tax_id: newTaxId, contact_info: newContact, short_name: newShortName })
       });
       if (!res.ok) throw new Error(await res.text());
     }
@@ -644,6 +641,8 @@ function openAddLocation(name) {
   document.getElementById('loc-title').textContent = `新增卸存地 — ${name}`;
   document.getElementById('loc-location').value = '';
   document.getElementById('loc-seal').value = '';
+  const addBase = rawRows.find(x => x.name === name);
+  document.getElementById('loc-taiwan-notify').value = addBase?.taiwan_notify_name || name || '';
   document.getElementById('loc-unit').value = 'PKG';
   document.getElementById('loc-error').textContent = '';
   document.getElementById('dlg-loc').classList.add('show');
@@ -658,6 +657,7 @@ function openEditLocation(id, name) {
   document.getElementById('loc-title').textContent = `編輯卸存地 — ${name}`;
   document.getElementById('loc-location').value = loc.location;
   document.getElementById('loc-seal').value = loc.seal_start;
+  document.getElementById('loc-taiwan-notify').value = loc.taiwan_notify_name || loc.name || '';
   document.getElementById('loc-unit').value = loc.unit || 'PKG';
   document.getElementById('loc-error').textContent = '';
   document.getElementById('dlg-loc').classList.add('show');
@@ -666,6 +666,7 @@ function openEditLocation(id, name) {
 async function submitLocation() {
   const location = document.getElementById('loc-location').value.trim().toUpperCase();
   const seal = document.getElementById('loc-seal').value.trim();
+  const taiwanNotifyName = document.getElementById('loc-taiwan-notify').value.trim() || editingLocName;
   const unit = document.getElementById('loc-unit').value;
   const errEl = document.getElementById('loc-error');
   const btnEl = document.getElementById('loc-submit');
@@ -685,7 +686,7 @@ async function submitLocation() {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ location, seal_start: parseInt(seal), unit })
+        body: JSON.stringify({ location, seal_start: parseInt(seal), taiwan_notify_name: taiwanNotifyName, unit })
       });
       if (!res.ok) throw new Error(await res.text());
     } else {
@@ -699,7 +700,7 @@ async function submitLocation() {
         body: JSON.stringify({
           name: g.name, chinese_name: g.rows[0]?.chineseName || '', address: g.rows[0]?.address || '',
           tax_id: g.rows[0]?.taxId || '', contact_info: g.rows[0]?.contactInfo || '',
-          short_name: g.rows[0]?.shortName || '', taiwan_notify_name: g.rows[0]?.taiwan_notify_name || g.rows[0]?.name || g.name, location, seal_start: parseInt(seal), unit
+          short_name: g.rows[0]?.shortName || '', taiwan_notify_name: taiwanNotifyName, location, seal_start: parseInt(seal), unit
         })
       });
       if (!res.ok) {
@@ -760,62 +761,107 @@ function toast(msg, warn=false) {
 
 
 let importedConsigneeRows=[];
+
 function openImportConsignees(){
   importedConsigneeRows=[];
-  const fi=document.getElementById('consignee-excel-file'); if(fi) fi.value='';
+  document.getElementById('consignee-excel-file').value='';
   document.getElementById('import-status').textContent='請選擇 Excel 檔案';
   document.getElementById('import-error').textContent='';
   document.getElementById('import-preview').innerHTML='';
-  document.getElementById('consignee-file-loaded').classList.remove('show');
-  document.getElementById('consignee-file-loaded-text').textContent='';
   document.getElementById('import-submit').disabled=true;
   document.getElementById('dlg-import-consignees').classList.add('show');
 }
-function consigneeDOver(e){e.preventDefault();document.getElementById('consignee-dzone').classList.add('drag-over')}
-function consigneeDLeave(){document.getElementById('consignee-dzone').classList.remove('drag-over')}
-function consigneeDDrop(e){e.preventDefault();consigneeDLeave();if(e.dataTransfer.files[0])readConsigneeFile(e.dataTransfer.files[0])}
-function readConsigneeFile(file){
-  const err=document.getElementById('import-error'),status=document.getElementById('import-status'),preview=document.getElementById('import-preview'),submit=document.getElementById('import-submit');
-  err.textContent='';submit.disabled=true;preview.innerHTML='';
+
+document.getElementById('group-mode')?.addEventListener('change',function(){
+  document.getElementById('group-hint').textContent=this.value==='location'
+    ? '同一卸存地內依艙號由小到大排序'
+    : '依原本收貨人名稱分類，同一家公司可看到不同卸存地';
+  render();
+});
+
+document.getElementById('consignee-excel-file')?.addEventListener('change',async function(){
+  const file=this.files?.[0]; if(!file)return;
+  const err=document.getElementById('import-error'), status=document.getElementById('import-status');
+  const preview=document.getElementById('import-preview'), submit=document.getElementById('import-submit');
+  err.textContent=''; submit.disabled=true;
   try{
     if(!window.XLSX)throw new Error('Excel 讀取模組尚未載入');
-    document.getElementById('consignee-file-loaded-text').textContent=`已載入 ${file.name}`;
-    document.getElementById('consignee-file-loaded').classList.add('show');
-    file.arrayBuffer().then(buf=>{
-      const wb=XLSX.read(buf,{type:'array'}),ws=wb.Sheets[wb.SheetNames[0]],rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
-      const cols=['收貨人英文名稱','收貨人中文名稱','收貨人中文簡稱','統編','聯絡人資訊','英文地址','台灣通知人','艙號起始值','卸存地','件數單位'];
-      if(!rows.length)throw new Error('Excel 沒有資料');
-      const missing=cols.filter(c=>!(c in rows[0])); if(missing.length)throw new Error('缺少欄位：'+missing.join('、'));
-      importedConsigneeRows=rows.map((r,i)=>({
-        name:String(r['收貨人英文名稱']??'').trim(),chinese_name:String(r['收貨人中文名稱']??'').trim(),short_name:String(r['收貨人中文簡稱']??'').trim(),
-        tax_id:String(r['統編']??'').trim(),contact_info:String(r['聯絡人資訊']??'').trim(),address:String(r['英文地址']??'').trim(),
-        taiwan_notify_name:String(r['台灣通知人']??'').trim(),seal_start:parseInt(String(r['艙號起始值']??'').trim(),10),location:String(r['卸存地']??'').trim().toUpperCase(),unit:String(r['件數單位']??'PKG').trim().toUpperCase()||'PKG',_row:i+2
-      }));
-      importedConsigneeRows.forEach(r=>{if(!r.taiwan_notify_name)r.taiwan_notify_name=r.name});
-      const bad=importedConsigneeRows.findIndex(r=>!r.name||!r.location||!Number.isFinite(r.seal_start)||!['PKG','CTN'].includes(r.unit));
-      if(bad>=0)throw new Error(`第 ${bad+2} 列資料不完整：英文名稱、卸存地、艙號起始值、件數單位請檢查`);
-      const seen=new Set(),dup=[];
-      importedConsigneeRows.forEach(r=>{const k=[r.name,r.location,r.taiwan_notify_name].map(x=>String(x).trim().toUpperCase()).join('|');if(seen.has(k))dup.push(r._row);seen.add(k)});
-      if(dup.length)throw new Error(`Excel 第 ${dup.join('、')} 列有完全相同的「收貨人＋卸存地＋台灣通知人」資料`);
-      status.textContent=`已讀取 ${importedConsigneeRows.length} 筆資料，可按「開始匯入」寫入 Supabase`;
-      preview.innerHTML='<table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>'+importedConsigneeRows.slice(0,10).map(r=>`<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.chinese_name)}</td><td>${escapeHtml(r.short_name)}</td><td>${escapeHtml(r.tax_id)}</td><td>${escapeHtml(r.contact_info)}</td><td>${escapeHtml(r.address)}</td><td>${escapeHtml(r.taiwan_notify_name)}</td><td>${escapeHtml(String(r.seal_start))}</td><td>${escapeHtml(r.location)}</td><td>${escapeHtml(r.unit)}</td></tr>`).join('')+'</tbody></table>';
-      submit.disabled=false;
-    }).catch(e=>{importedConsigneeRows=[];err.textContent='讀取失敗：'+(e.message||e)});
-  }catch(e){importedConsigneeRows=[];err.textContent='讀取失敗：'+(e.message||e)}
-}
-document.getElementById('consignee-excel-file')?.addEventListener('change',function(){if(this.files?.[0])readConsigneeFile(this.files[0])});
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+    const cols=['收貨人英文名稱','收貨人中文名稱','收貨人中文簡稱','統編','聯絡人資訊','英文地址','台灣通知人','艙號起始值','卸存地','件數單位'];
+    if(!rows.length)throw new Error('Excel 沒有資料');
+    const missing=cols.filter(c=>!(c in rows[0]));
+    if(missing.length)throw new Error('缺少欄位：'+missing.join('、'));
+    importedConsigneeRows=rows.map((r,i)=>({
+      name:String(r['收貨人英文名稱']??'').trim(),
+      chinese_name:String(r['收貨人中文名稱']??'').trim(),
+      short_name:String(r['收貨人中文簡稱']??'').trim(),
+      tax_id:String(r['統編']??'').trim(),
+      contact_info:String(r['聯絡人資訊']??'').trim(),
+      address:String(r['英文地址']??'').trim(),
+      taiwan_notify_name:String(r['台灣通知人']??'').trim(),
+      seal_start:parseInt(String(r['艙號起始值']??'').trim(),10),
+      location:String(r['卸存地']??'').trim().toUpperCase(),
+      unit:String(r['件數單位']??'PKG').trim().toUpperCase()||'PKG',
+      _row:i+2
+    }));
+    importedConsigneeRows.forEach(r=>{ if(!r.taiwan_notify_name) r.taiwan_notify_name=r.name; });
+    const bad=importedConsigneeRows.findIndex(r=>!r.name||!r.location||!Number.isFinite(r.seal_start)||!['PKG','CTN'].includes(r.unit));
+    if(bad>=0)throw new Error(`第 ${bad+2} 列資料不完整：英文名稱、卸存地、艙號起始值、件數單位請檢查`);
+    status.textContent=`已讀取 ${importedConsigneeRows.length} 筆，可按「開始匯入」寫入 Supabase`;
+    preview.innerHTML='<table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>'+
+      importedConsigneeRows.slice(0,10).map(r=>`<tr>
+      <td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.chinese_name)}</td><td>${escapeHtml(r.short_name)}</td>
+      <td>${escapeHtml(r.tax_id)}</td><td>${escapeHtml(r.contact_info)}</td><td>${escapeHtml(r.address)}</td><td>${escapeHtml(r.taiwan_notify_name)}</td>
+      <td>${escapeHtml(String(r.seal_start))}</td><td>${escapeHtml(r.location)}</td><td>${escapeHtml(r.unit)}</td></tr>`).join('')+
+      '</tbody></table>';
+    submit.disabled=false;
+  }catch(e){importedConsigneeRows=[];err.textContent='讀取失敗：'+(e.message||e);}
+});
+
 async function submitImportedConsignees(){
   if(!importedConsigneeRows.length)return;
-  const btn=document.getElementById('import-submit'),err=document.getElementById('import-error');btn.disabled=true;btn.textContent='匯入中…';err.textContent='';
+  const btn=document.getElementById('import-submit'),err=document.getElementById('import-error');
+  btn.disabled=true;btn.textContent='匯入中…';err.textContent='';
   try{
-    const payload=importedConsigneeRows.map(r=>({name:r.name,chinese_name:r.chinese_name,short_name:r.short_name,tax_id:r.tax_id,contact_info:r.contact_info,address:r.address,taiwan_notify_name:r.taiwan_notify_name,seal_start:r.seal_start,location:r.location,unit:r.unit}));
-    const res=await fetch(`${SB_URL}/rest/v1/consignees?on_conflict=name,location,taiwan_notify_name`,{method:'POST',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
-    if(!res.ok)throw new Error(await res.text());
-    const n=payload.length;importedConsigneeRows=[];closeDlg('dlg-import-consignees');await loadConsignees();toast(`✅ 已匯入 ${n} 筆收貨人`);
-  }catch(e){err.textContent='匯入失敗：'+(e.message||'請稍後再試')}
-  finally{btn.textContent='開始匯入';btn.disabled=importedConsigneeRows.length===0}
+    const res=await fetch(`${SB_URL}/rest/v1/consignees`,{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify(importedConsigneeRows)
+    });
+    if(!res.ok){
+      const tx=await res.text();
+      if(/duplicate|unique/i.test(tx))throw new Error('資料庫目前仍有不允許同一家廠商多筆資料的 UNIQUE 約束，請先執行台灣通知人資料庫調整 SQL；Excel 本身的不同卸存地／艙號資料可以保留多筆。');
+      throw new Error(tx);
+    }
+    const n=importedConsigneeRows.length;
+    importedConsigneeRows=[];
+    closeDlg('dlg-import-consignees');
+    await loadConsignees();
+    toast(`✅ 已匯入 ${n} 筆收貨人`);
+  }catch(e){err.textContent='匯入失敗：'+(e.message||'請稍後再試');}
+  finally{btn.textContent='開始匯入';btn.disabled=importedConsigneeRows.length===0;}
 }
 loadConsignees();
 </script>
+
+<script>
+(function(){
+  function bindOutsideClose(id){
+    const overlay = document.getElementById(id);
+    if(!overlay || overlay.dataset.outsideCloseBound) return;
+    overlay.dataset.outsideCloseBound = '1';
+    overlay.addEventListener('click', function(e){
+      if(e.target === overlay) closeDlg(id);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    bindOutsideClose('dlg-add-consignee');
+    bindOutsideClose('dlg-import-consignees');
+  });
+})();
+</script>
+
 </body>
 </html>
