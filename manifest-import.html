@@ -159,12 +159,13 @@ input[type="file"] { display:none }
 .n-column-test th { background:#eef6fc; color:#555; font-weight:800; position:sticky; top:0; z-index:1 }
 .n-column-test .n-raw { white-space:pre-wrap; line-height:1.5; word-break:break-word; color:#333 }
 .n-column-test .n-extracted { color:var(--cyan); font-weight:800; line-height:1.5; word-break:break-word }
-
-.n-column-test .n-match { font-weight:800; line-height:1.5; white-space:nowrap }
-.n-column-test .n-match.ok { color:#2e9e5b }
-.n-column-test .n-match.no { color:#cc2222 }
-.n-column-test .n-match.wait { color:#777 }
-.n-column-test .n-match-name { margin-top:3px; font-size:.62rem; color:#555; white-space:normal; word-break:break-word }
+.n-column-test .n-match { line-height:1.5; word-break:break-word }
+.n-column-test .n-match.exact { color:#2e9e5b; font-weight:800 }
+.n-column-test .n-match.similar { color:#c17a00; font-weight:800 }
+.n-column-test .n-match.none { color:#cc2222; font-weight:800 }
+.n-column-test .n-match small { display:block; margin-top:3px; color:#777; font-weight:400 }
+.n-column-test .n-candidate { margin-top:4px; padding:5px 7px; border-radius:6px; background:#fff; border:1px solid rgba(193,122,0,.2); color:#555; font-weight:600 }
+.n-column-test .n-candidate b { color:#9a6100 }
 
 .btn-primary {
   width:100%; padding:13px; background:var(--cyan); color:#fff; border:none;
@@ -317,14 +318,14 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
       <span id="file-loaded-text"></span>
     </div>
 
-    <!-- 第二階段：在第一階段確認 N 欄讀取正確後，開始測試與 Supabase 台灣通知人比對。暫不修改 Q 欄與艙單資料。 -->
+    <!-- 第一階段：只確認大陸 Excel 的 N 欄是否被正確讀取。暫不做 Supabase 比對或 Q 欄判斷。 -->
     <div class="n-column-test" id="n-column-test">
-      <div class="n-column-test-head">🔎 第二階段：N 欄公司名稱 ↔ Supabase「台灣通知人」比對測試</div>
+      <div class="n-column-test-head">🔎 第一階段：大陸 Excel「N 欄」讀取測試</div>
       <div class="n-column-test-note" id="n-column-test-note"></div>
       <div class="n-column-test-scroll">
         <table>
           <thead>
-            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th><th>Supabase 比對結果</th></tr>
+            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th><th>Supabase 比對結果 / 相似候選</th></tr>
           </thead>
           <tbody id="n-column-test-body"></tbody>
         </table>
@@ -424,7 +425,6 @@ async function init() {
     ]);
     ships = await shipsRes.json();
     consignees = await consigneesRes.json();
-    if (nColumnTestRows.length) renderNColumnTest();
 
     const sel = document.getElementById('f-ship-select');
     ships.filter(s => (s.ship_type || '一程船') === '一程船').forEach(s => {
@@ -527,14 +527,96 @@ function readFile(file) {
   reader.readAsBinaryString(file);
 }
 
-// 第一階段的解析規則：先完整保留 N 欄原文，再取 N 欄第一個非空白行作為公司名稱。
-// 目前刻意不連 Supabase、不判斷 SAME AS CONSIGNEE，避免把第二階段混進來。
+// 第二階段：N 欄公司名稱與 Supabase 的 taiwan_notify_name 比對。
+// 先做格式標準化完全比對；完全比對不到時，再提供相似度候選。
 function normalizeNotifyName(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  let s = String(value || '').toUpperCase().trim();
+  s = s.replace(/[.,，。、;；:：'"`]/g, '');
+  s = s.replace(/[()（）\[\]{}]/g, '');
+  s = s.replace(/[\s_\-\/\\]+/g, '');
+  s = s.replace(/\bLIMITEDLIABILITYCOMPANY\b/g, 'LLC');
+  s = s.replace(/\bLIMITEDCOMPANY\b/g, 'LTD');
+  s = s.replace(/\bLIMITED\b/g, 'LTD');
+  s = s.replace(/\bCORPORATION\b/g, 'CORP');
+  s = s.replace(/\bINCORPORATED\b/g, 'INC');
+  return s;
 }
 
-// 第二階段比對規則：只拿第一階段已擷取出的公司名稱，與 Supabase consignees.taiwan_notify_name 比對。
-// 這裡不修改 uploadedRows，也不做 Q 欄 SAME AS CONSIGNEE 判斷。
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({length:n+1}, (_,i)=>i);
+  for (let i=1;i<=m;i++) {
+    const cur = [i];
+    for (let j=1;j<=n;j++) {
+      cur[j] = Math.min(
+        cur[j-1] + 1,
+        prev[j] + 1,
+        prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1)
+      );
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function bigramSimilarity(a, b) {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
+  const make = s => {
+    const set = new Set();
+    for (let i=0;i<s.length-1;i++) set.add(s.slice(i,i+2));
+    return set;
+  };
+  const A = make(a), B = make(b);
+  let inter = 0;
+  A.forEach(x => { if (B.has(x)) inter++; });
+  return (2 * inter) / (A.size + B.size);
+}
+
+function notifySimilarity(aRaw, bRaw) {
+  const a = normalizeNotifyName(aRaw);
+  const b = normalizeNotifyName(bRaw);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  const containment = shorter.length >= 8 && longer.includes(shorter) ? shorter.length / longer.length : 0;
+  const edit = 1 - (levenshtein(a, b) / Math.max(a.length, b.length));
+  const bi = bigramSimilarity(a, b);
+  return Math.max(containment, edit * 0.7 + bi * 0.3);
+}
+
+function getNotifyMatches(name) {
+  if (!name || !Array.isArray(consignees) || !consignees.length) return {exact:[], candidates:[]};
+  const normalized = normalizeNotifyName(name);
+  const exact = consignees.filter(c => normalizeNotifyName(c.taiwan_notify_name) === normalized);
+  if (exact.length) return { exact, candidates: [] };
+  const candidates = consignees
+    .filter(c => String(c.taiwan_notify_name || '').trim())
+    .map(c => ({ consignee:c, score:notifySimilarity(name, c.taiwan_notify_name) }))
+    .filter(x => x.score >= 0.68)
+    .sort((a,b) => b.score - a.score)
+    .slice(0,3);
+  return { exact:[], candidates };
+}
+
+function renderNotifyMatch(item) {
+  if (!Array.isArray(consignees) || !consignees.length) {
+    return '<div class="n-match wait">⏳ Supabase 收貨人資料尚未載入</div>';
+  }
+  const result = getNotifyMatches(item.extractedName);
+  if (result.exact.length) {
+    return `<div class="n-match exact">✅ 完全符合（${result.exact.length} 筆）<small>${escapeHtml(result.exact[0].taiwan_notify_name)}</small></div>`;
+  }
+  if (result.candidates.length) {
+    const html = result.candidates.map(x => `<div class="n-candidate">相似度 <b>${Math.round(x.score*100)}%</b><br>${escapeHtml(x.consignee.taiwan_notify_name)}</div>`).join('');
+    return `<div class="n-match similar">🟡 找不到完全相同名稱，提供相似候選${html}<small>候選僅供人工確認，本階段不會自動採用。</small></div>`;
+  }
+  return '<div class="n-match none">❌ 找不到相符或足夠相似的台灣通知人</div>';
+}
+
 function renderNColumnTest() {
   const section = document.getElementById('n-column-test');
   const body = document.getElementById('n-column-test-body');
@@ -545,39 +627,17 @@ function renderNColumnTest() {
     return;
   }
 
-  const dbReady = Array.isArray(consignees) && consignees.length > 0;
-  note.textContent = dbReady
-    ? `成功讀取 N 欄：${nColumnTestRows.length} 筆。現在以擷取出的第一行公司名稱，比對 Supabase consignees.taiwan_notify_name；目前只顯示比對結果，不會修改 Q 欄或艙單資料。`
-    : `成功讀取 N 欄：${nColumnTestRows.length} 筆，但 Supabase 收貨人資料尚未載入完成，請稍候再重新選一次 Excel。`;
-
-  body.innerHTML = nColumnTestRows.map(item => {
-    const extracted = normalizeNotifyName(item.extractedName);
-    const matches = dbReady
-      ? consignees.filter(c => normalizeNotifyName(c.taiwan_notify_name) === extracted)
-      : [];
-    const matchedNames = [...new Set(matches.map(c => String(c.taiwan_notify_name || '').trim()).filter(Boolean))];
-
-    let matchHtml;
-    if (!dbReady) {
-      matchHtml = `<div class="n-match wait">⏳ 尚未載入資料庫</div>`;
-    } else if (matchedNames.length) {
-      matchHtml = `<div class="n-match ok">✅ 找到 ${matches.length} 筆</div><div class="n-match-name">${matchedNames.map(escapeHtml).join('<br>')}</div>`;
-    } else {
-      matchHtml = `<div class="n-match no">❌ 找不到</div>`;
-    }
-
-    return `
-      <tr>
-        <td>${item.excelRow}</td>
-        <td class="n-raw">${escapeHtml(item.rawN)}</td>
-        <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
-        <td>${matchHtml}</td>
-      </tr>
-    `;
-  }).join('');
+  note.textContent = `成功讀取 N 欄：${nColumnTestRows.length} 筆。現在除了原始 N 欄與解析名稱，也會用 Supabase 的 taiwan_notify_name 做「完全比對＋相似候選」測試；黃色候選不會自動採用。`;
+  body.innerHTML = nColumnTestRows.map(item => `
+    <tr>
+      <td>${item.excelRow}</td>
+      <td class="n-raw">${escapeHtml(item.rawN)}</td>
+      <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
+      <td>${renderNotifyMatch(item)}</td>
+    </tr>
+  `).join('');
   section.classList.add('show');
 }
-
 
 function showError(msgs) {
   const box = document.getElementById('error-box');
