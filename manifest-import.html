@@ -160,6 +160,12 @@ input[type="file"] { display:none }
 .n-column-test .n-raw { white-space:pre-wrap; line-height:1.5; word-break:break-word; color:#333 }
 .n-column-test .n-extracted { color:var(--cyan); font-weight:800; line-height:1.5; word-break:break-word }
 
+.n-column-test .n-match { font-weight:800; line-height:1.5; white-space:nowrap }
+.n-column-test .n-match.ok { color:#2e9e5b }
+.n-column-test .n-match.no { color:#cc2222 }
+.n-column-test .n-match.wait { color:#777 }
+.n-column-test .n-match-name { margin-top:3px; font-size:.62rem; color:#555; white-space:normal; word-break:break-word }
+
 .btn-primary {
   width:100%; padding:13px; background:var(--cyan); color:#fff; border:none;
   border-radius:8px; font-size:.9rem; font-weight:800; cursor:pointer; font-family:inherit;
@@ -311,14 +317,14 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
       <span id="file-loaded-text"></span>
     </div>
 
-    <!-- 第一階段：只確認大陸 Excel 的 N 欄是否被正確讀取。暫不做 Supabase 比對或 Q 欄判斷。 -->
+    <!-- 第二階段：在第一階段確認 N 欄讀取正確後，開始測試與 Supabase 台灣通知人比對。暫不修改 Q 欄與艙單資料。 -->
     <div class="n-column-test" id="n-column-test">
-      <div class="n-column-test-head">🔎 第一階段：大陸 Excel「N 欄」讀取測試</div>
+      <div class="n-column-test-head">🔎 第二階段：N 欄公司名稱 ↔ Supabase「台灣通知人」比對測試</div>
       <div class="n-column-test-note" id="n-column-test-note"></div>
       <div class="n-column-test-scroll">
         <table>
           <thead>
-            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th></tr>
+            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th><th>Supabase 比對結果</th></tr>
           </thead>
           <tbody id="n-column-test-body"></tbody>
         </table>
@@ -418,6 +424,7 @@ async function init() {
     ]);
     ships = await shipsRes.json();
     consignees = await consigneesRes.json();
+    if (nColumnTestRows.length) renderNColumnTest();
 
     const sel = document.getElementById('f-ship-select');
     ships.filter(s => (s.ship_type || '一程船') === '一程船').forEach(s => {
@@ -522,6 +529,12 @@ function readFile(file) {
 
 // 第一階段的解析規則：先完整保留 N 欄原文，再取 N 欄第一個非空白行作為公司名稱。
 // 目前刻意不連 Supabase、不判斷 SAME AS CONSIGNEE，避免把第二階段混進來。
+function normalizeNotifyName(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+// 第二階段比對規則：只拿第一階段已擷取出的公司名稱，與 Supabase consignees.taiwan_notify_name 比對。
+// 這裡不修改 uploadedRows，也不做 Q 欄 SAME AS CONSIGNEE 判斷。
 function renderNColumnTest() {
   const section = document.getElementById('n-column-test');
   const body = document.getElementById('n-column-test-body');
@@ -532,16 +545,39 @@ function renderNColumnTest() {
     return;
   }
 
-  note.textContent = `成功讀取 N 欄：${nColumnTestRows.length} 筆。左欄保留 Excel 原始內容，中欄是目前第一階段擷取結果；請先人工確認這兩欄是否與原始 Excel 一致。`;
-  body.innerHTML = nColumnTestRows.map(item => `
-    <tr>
-      <td>${item.excelRow}</td>
-      <td class="n-raw">${escapeHtml(item.rawN)}</td>
-      <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
-    </tr>
-  `).join('');
+  const dbReady = Array.isArray(consignees) && consignees.length > 0;
+  note.textContent = dbReady
+    ? `成功讀取 N 欄：${nColumnTestRows.length} 筆。現在以擷取出的第一行公司名稱，比對 Supabase consignees.taiwan_notify_name；目前只顯示比對結果，不會修改 Q 欄或艙單資料。`
+    : `成功讀取 N 欄：${nColumnTestRows.length} 筆，但 Supabase 收貨人資料尚未載入完成，請稍候再重新選一次 Excel。`;
+
+  body.innerHTML = nColumnTestRows.map(item => {
+    const extracted = normalizeNotifyName(item.extractedName);
+    const matches = dbReady
+      ? consignees.filter(c => normalizeNotifyName(c.taiwan_notify_name) === extracted)
+      : [];
+    const matchedNames = [...new Set(matches.map(c => String(c.taiwan_notify_name || '').trim()).filter(Boolean))];
+
+    let matchHtml;
+    if (!dbReady) {
+      matchHtml = `<div class="n-match wait">⏳ 尚未載入資料庫</div>`;
+    } else if (matchedNames.length) {
+      matchHtml = `<div class="n-match ok">✅ 找到 ${matches.length} 筆</div><div class="n-match-name">${matchedNames.map(escapeHtml).join('<br>')}</div>`;
+    } else {
+      matchHtml = `<div class="n-match no">❌ 找不到</div>`;
+    }
+
+    return `
+      <tr>
+        <td>${item.excelRow}</td>
+        <td class="n-raw">${escapeHtml(item.rawN)}</td>
+        <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
+        <td>${matchHtml}</td>
+      </tr>
+    `;
+  }).join('');
   section.classList.add('show');
 }
+
 
 function showError(msgs) {
   const box = document.getElementById('error-box');
