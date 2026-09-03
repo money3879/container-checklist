@@ -139,6 +139,26 @@ input[type="file"] { display:none }
   font-size:.82rem; color:#1a7a3e; margin-bottom:8px;
 }
 .file-loaded.show { display:flex }
+.n-column-test {
+  margin-top:12px; border:1px solid rgba(26,123,191,.22); border-radius:10px;
+  background:#f7fbff; overflow:hidden; display:none;
+}
+.n-column-test.show { display:block }
+.n-column-test-head {
+  padding:10px 12px; border-bottom:1px solid rgba(26,123,191,.16);
+  font-size:.76rem; font-weight:800; color:#1a5a8a;
+}
+.n-column-test-note {
+  padding:9px 12px; font-size:.68rem; line-height:1.6; color:#666;
+}
+.n-column-test-scroll { overflow:auto; max-height:520px }
+.n-column-test table { width:100%; border-collapse:collapse; min-width:720px; font-size:.68rem }
+.n-column-test th, .n-column-test td {
+  border-top:1px solid rgba(0,0,0,.08); padding:7px 8px; vertical-align:top; text-align:left;
+}
+.n-column-test th { background:#eef6fc; color:#555; font-weight:800; position:sticky; top:0; z-index:1 }
+.n-column-test .n-raw { white-space:pre-wrap; line-height:1.5; word-break:break-word; color:#333 }
+.n-column-test .n-extracted { color:var(--cyan); font-weight:800; line-height:1.5; word-break:break-word }
 
 .btn-primary {
   width:100%; padding:13px; background:var(--cyan); color:#fff; border:none;
@@ -290,6 +310,20 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
       <span>✅</span>
       <span id="file-loaded-text"></span>
     </div>
+
+    <!-- 第一階段：只確認大陸 Excel 的 N 欄是否被正確讀取。暫不做 Supabase 比對或 Q 欄判斷。 -->
+    <div class="n-column-test" id="n-column-test">
+      <div class="n-column-test-head">🔎 第一階段：大陸 Excel「N 欄」讀取測試</div>
+      <div class="n-column-test-note" id="n-column-test-note"></div>
+      <div class="n-column-test-scroll">
+        <table>
+          <thead>
+            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th></tr>
+          </thead>
+          <tbody id="n-column-test-body"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <button class="btn-primary" id="btn-generate" onclick="generatePreview()">產生艙單預覽</button>
@@ -365,6 +399,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 let ships = [];
 let consignees = [];
 let uploadedRows = null;
+let nColumnTestRows = [];
 let manifestByLocation = {};
 let currentLocationTab = null;
 let currentView = 'table';
@@ -462,14 +497,50 @@ function readFile(file) {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
       if (!json.length) { showError(['檔案沒有資料']); return; }
+
+      // 第一階段只另外讀取 Excel 的第 14 欄（N 欄），不改動既有 uploadedRows。
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      const dataRows = matrix.slice(1);
+      nColumnTestRows = dataRows.map((row, index) => {
+        const rawN = String(row[13] ?? '').trim(); // N 欄 = 第 14 欄，0-based index 為 13
+        const firstLine = rawN.split(/\r?\n/).map(x => x.trim()).find(Boolean) || '';
+        return { excelRow: index + 2, rawN, extractedName: firstLine };
+      }).filter(x => x.rawN);
+
       uploadedRows = json;
       document.getElementById('file-loaded-text').textContent = `已載入 ${file.name}（共 ${json.length} 筆資料）`;
       document.getElementById('file-loaded').classList.add('show');
+      renderNColumnTest();
     } catch(err) {
+      nColumnTestRows = [];
+      document.getElementById('n-column-test').classList.remove('show');
       showError(['檔案讀取失敗，請確認格式是否正確']);
     }
   };
   reader.readAsBinaryString(file);
+}
+
+// 第一階段的解析規則：先完整保留 N 欄原文，再取 N 欄第一個非空白行作為公司名稱。
+// 目前刻意不連 Supabase、不判斷 SAME AS CONSIGNEE，避免把第二階段混進來。
+function renderNColumnTest() {
+  const section = document.getElementById('n-column-test');
+  const body = document.getElementById('n-column-test-body');
+  const note = document.getElementById('n-column-test-note');
+
+  if (!nColumnTestRows.length) {
+    section.classList.remove('show');
+    return;
+  }
+
+  note.textContent = `成功讀取 N 欄：${nColumnTestRows.length} 筆。左欄保留 Excel 原始內容，中欄是目前第一階段擷取結果；請先人工確認這兩欄是否與原始 Excel 一致。`;
+  body.innerHTML = nColumnTestRows.map(item => `
+    <tr>
+      <td>${item.excelRow}</td>
+      <td class="n-raw">${escapeHtml(item.rawN)}</td>
+      <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
+    </tr>
+  `).join('');
+  section.classList.add('show');
 }
 
 function showError(msgs) {
