@@ -812,6 +812,14 @@ function generatePreview() {
 
   const sealCounter = {}; // key: `${consigneeName}|${location}`
 
+  function nextSealNo(value){
+    const s=String(value??'').trim().toUpperCase();
+    const m=s.match(/^([A-Z]*)([0-9]+)$/);
+    if(!m) return s;
+    const prefix=m[1], digits=m[2];
+    return prefix + String(Number(digits)+1).padStart(digits.length,'0');
+  }
+
   for (const row of sorted) {
     const rowLocation = String(row[kLocation] || '').trim().toUpperCase();
     if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
@@ -828,7 +836,7 @@ function generatePreview() {
     if (!(counterKey in sealCounter)) {
       sealCounter[counterKey] = match.seal_start;
     } else {
-      sealCounter[counterKey]++;
+      sealCounter[counterKey] = nextSealNo(sealCounter[counterKey]);
     }
     const sealNo = sealCounter[counterKey];
 

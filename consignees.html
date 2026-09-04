@@ -292,7 +292,7 @@ main { padding:16px; padding-bottom:90px }
       <div class="field-hint">資料庫儲存實際名稱；艙單顯示時若與收貨人相同會自動顯示 SAME AS CONSIGNEE</div>
     </div><div class="field">
       <label>艙號起始值 *</label>
-      <input type="number" id="nc-seal" placeholder="例如 5501">
+      <input type="text" id="nc-seal" inputmode="text" placeholder="例如 5501、JW01、PP01">
       <div class="field-hint">系統會依提單號順序，從這個號碼開始遞增</div>
     </div><div class="field">
       <label>卸存地 *</label>
@@ -377,7 +377,7 @@ main { padding:16px; padding-bottom:90px }
 
     <div class="field">
       <label>艙號起始值 *</label>
-      <input type="number" id="loc-seal" placeholder="例如 5501">
+      <input type="text" id="loc-seal" inputmode="text" placeholder="例如 5501、JW01、PP01">
     </div>
 
     <div class="field">
@@ -491,11 +491,11 @@ function groupData() {
     map[location].rows.push({
       id:r.id, name:r.name||'', chineseName:r.chinese_name||'', address:r.address||'',
       taxId:r.tax_id||'', contactInfo:r.contact_info||'', shortName:r.short_name||'', taiwanNotifyName:r.taiwan_notify_name||'',
-      seal_start:Number(r.seal_start)||0, unit:r.unit||'PKG'
+      seal_start:String(r.seal_start||'').trim(), unit:r.unit||'PKG'
     });
   });
   grouped=Object.values(map).sort((a,b)=>a.location.localeCompare(b.location,'zh-Hant',{numeric:true}));
-  grouped.forEach(g=>g.rows.sort((a,b)=>a.seal_start-b.seal_start || a.name.localeCompare(b.name,'en',{numeric:true})));
+  grouped.forEach(g=>g.rows.sort((a,b)=>compareSeal(a.seal_start,b.seal_start) || a.name.localeCompare(b.name,'en',{numeric:true})));
 }
 
 function render() {
@@ -511,7 +511,7 @@ function render() {
     listEl.innerHTML=names.map(name=>{
       const rows=map[name].slice().sort((a,b)=>
         String(a.location||'').localeCompare(String(b.location||''),'zh-Hant',{numeric:true}) ||
-        (Number(a.seal_start)||0)-(Number(b.seal_start)||0));
+        compareSeal(a.seal_start,b.seal_start));
       const r=rows[0];
       return `<div class="location-card">
         <div class="cc-header">
@@ -604,7 +604,7 @@ async function submitNewConsignee() {
 
   if (!name) { errEl.textContent = '請輸入收貨人名稱'; return; }
   if (!location) { errEl.textContent = '請輸入卸存地'; return; }
-  if (!seal || isNaN(parseInt(seal))) { errEl.textContent = '請輸入有效的艙號起始值'; return; }
+  if (!seal || !isValidSealStart(seal)) { errEl.textContent = '請輸入有效的艙號起始值（可為數字或英文字母＋數字，例如 5501、JW01、PP01）'; return; }
 
   errEl.textContent = '';
   btnEl.textContent = '儲存中…';
@@ -617,7 +617,7 @@ async function submitNewConsignee() {
         'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
         'Content-Type': 'application/json', 'Prefer': 'return=minimal'
       },
-      body: JSON.stringify({ name, chinese_name: chineseName, address, taiwan_notify_name: taiwanNotifyName || name, tax_id: taxId, contact_info: contactInfo, short_name: shortName, location, seal_start: parseInt(seal), unit })
+      body: JSON.stringify({ name, chinese_name: chineseName, address, taiwan_notify_name: taiwanNotifyName || name, tax_id: taxId, contact_info: contactInfo, short_name: shortName, location, seal_start: seal, unit })
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -735,7 +735,7 @@ async function submitLocation() {
   const btnEl = document.getElementById('loc-submit');
 
   if (!location) { errEl.textContent = '請輸入卸存地'; return; }
-  if (!seal || isNaN(parseInt(seal))) { errEl.textContent = '請輸入有效的艙號起始值'; return; }
+  if (!seal || !isValidSealStart(seal)) { errEl.textContent = '請輸入有效的艙號起始值（可為數字或英文字母＋數字，例如 5501、JW01、PP01）'; return; }
 
   errEl.textContent = '';
   btnEl.textContent = '儲存中…';
@@ -749,7 +749,7 @@ async function submitLocation() {
           'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY,
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
-        body: JSON.stringify({ location, seal_start: parseInt(seal), taiwan_notify_name: taiwanNotifyName, unit })
+        body: JSON.stringify({ location, seal_start: seal, taiwan_notify_name: taiwanNotifyName, unit })
       });
       if (!res.ok) throw new Error(await res.text());
     } else {
@@ -763,7 +763,7 @@ async function submitLocation() {
         body: JSON.stringify({
           name: g.name, chinese_name: g.rows[0]?.chineseName || '', address: g.rows[0]?.address || '',
           tax_id: g.rows[0]?.taxId || '', contact_info: g.rows[0]?.contactInfo || '',
-          short_name: g.rows[0]?.shortName || '', taiwan_notify_name: taiwanNotifyName, location, seal_start: parseInt(seal), unit
+          short_name: g.rows[0]?.shortName || '', taiwan_notify_name: taiwanNotifyName, location, seal_start: seal, unit
         })
       });
       if (!res.ok) {
@@ -870,13 +870,13 @@ function handleConsigneeImportFile(file){
         contact_info:String(r['聯絡人資訊']??'').trim(),
         address:String(r['英文地址']??'').trim(),
         taiwan_notify_name:String(r['台灣通知人']??'').trim(),
-        seal_start:parseInt(String(r['艙號起始值']??'').trim(),10),
+        seal_start:String(r['艙號起始值']??'').trim(),
         location:String(r['卸存地']??'').trim().toUpperCase(),
         unit:String(r['件數單位']??'PKG').trim().toUpperCase()||'PKG',
         _row:i+2
       }));
       importedConsigneeRows.forEach(r=>{ if(!r.taiwan_notify_name) r.taiwan_notify_name=r.name; });
-      const bad=importedConsigneeRows.findIndex(r=>!r.name||!r.location||!Number.isFinite(r.seal_start)||!['PKG','CTN'].includes(r.unit));
+      const bad=importedConsigneeRows.findIndex(r=>!r.name||!r.location||!isValidSealStart(r.seal_start)||!['PKG','CTN'].includes(r.unit));
       if(bad>=0)throw new Error(`第 ${bad+2} 列資料不完整：英文名稱、卸存地、艙號起始值、件數單位請檢查`);
       status.textContent=`已讀取 ${importedConsigneeRows.length} 筆，可按「開始匯入」寫入 Supabase`;
       preview.innerHTML='<table><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>'+importedConsigneeRows.slice(0,10).map(r=>`<tr>
