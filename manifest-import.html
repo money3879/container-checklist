@@ -538,7 +538,9 @@ function extractNotifyCompanyName(rawValue) {
   // SWAN SUPPLY CHAIN SERVICE CO., LTD5F,NO.209,...
   // HAI SU YUN CO.,LTD. (统编:93378747)
   // 這裡優先擷取第一個完整的英文公司法律後綴，避免把地址一起當成公司名稱。
-  const legalSuffix = /\b(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)\b/i;
+  // 後綴後面可能直接黏著樓層/地址，例如「LTD5F」；因此不能用 \b 限制結尾。
+  // 改成要求後面不是英文字母，讓「LTD5F」也能正確截在 LTD。
+  const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?![A-Z])/i;
   const firstLine = raw.split('\n').map(x => x.trim()).find(Boolean) || '';
   const match = firstLine.match(legalSuffix);
 
