@@ -159,6 +159,13 @@ input[type="file"] { display:none }
 .n-column-test th { background:#eef6fc; color:#555; font-weight:800; position:sticky; top:0; z-index:1 }
 .n-column-test .n-raw { white-space:pre-wrap; line-height:1.5; word-break:break-word; color:#333 }
 .n-column-test .n-extracted { color:var(--cyan); font-weight:800; line-height:1.5; word-break:break-word }
+.n-column-test .n-match { line-height:1.5; word-break:break-word }
+.n-column-test .n-match.exact { color:#2e9e5b; font-weight:800 }
+.n-column-test .n-match.similar { color:#c17a00; font-weight:800 }
+.n-column-test .n-match.none { color:#cc2222; font-weight:800 }
+.n-column-test .n-match small { display:block; margin-top:3px; color:#777; font-weight:400 }
+.n-column-test .n-candidate { margin-top:4px; padding:5px 7px; border-radius:6px; background:#fff; border:1px solid rgba(193,122,0,.2); color:#555; font-weight:600 }
+.n-column-test .n-candidate b { color:#9a6100 }
 
 .btn-primary {
   width:100%; padding:13px; background:var(--cyan); color:#fff; border:none;
@@ -318,7 +325,7 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
       <div class="n-column-test-scroll">
         <table>
           <thead>
-            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th></tr>
+            <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th><th>Supabase 比對結果 / 相似候選</th></tr>
           </thead>
           <tbody id="n-column-test-body"></tbody>
         </table>
@@ -503,12 +510,7 @@ function readFile(file) {
       const dataRows = matrix.slice(1);
       nColumnTestRows = dataRows.map((row, index) => {
         const rawN = String(row[13] ?? '').trim(); // N 欄 = 第 14 欄，0-based index 為 13
-        const firstLine = rawN.split(/\r?\n/).map(x => x.trim()).find(Boolean) || '';
-        // 大陸文件的 N 欄常把公司名稱、地址、電話直接黏在同一行。
-        // 優先抓到公司法定英文名稱的結尾（例如 LTD、LIMITED、INC、CORP），
-        // 即使出現「LTD5F」或「LTD. (統編...)」也要在 LTD / LTD. 處停止。
-        const suffixMatch = firstLine.match(/^(.*?\b(?:LTD|LIMITED|INC|INCORPORATED|CORP|CORPORATION|LLC|PLC)\.?)(?=\s|[0-9]|[（(]|$)/i);
-        const extractedName = suffixMatch ? suffixMatch[1].trim() : firstLine;
+        const extractedName = extractNotifyCompanyName(rawN);
         return { excelRow: index + 2, rawN, extractedName };
       }).filter(x => x.rawN);
 
@@ -525,11 +527,117 @@ function readFile(file) {
   reader.readAsBinaryString(file);
 }
 
-// 第二階段的 N 欄公司名稱解析：完整保留 N 欄原文，
-// 再從第一個非空白行抓出公司名稱；若公司名稱後直接接地址/樓層/統編，
-// 會優先在 LTD、LIMITED、INC、CORP 等公司型態結尾停止。
-// 例如：SWAN ... CO., LTD5F -> SWAN ... CO., LTD
-//       HAI SU YUN CO.,LTD. (統編...) -> HAI SU YUN CO.,LTD.
+// 第二階段：N 欄公司名稱與 Supabase 的 taiwan_notify_name 比對。
+// 先把 N 欄中的公司名稱從地址、統編、電話等後續資訊切出來，
+// 再做格式標準化完全比對；完全比對不到時，再提供相似度候選。
+function extractNotifyCompanyName(rawValue) {
+  const raw = String(rawValue || '').replace(/\r/g, '\n').trim();
+  if (!raw) return '';
+
+  // 大陸文件常把公司名稱、樓層/地址、電話直接黏在同一行，例如：
+  // SWAN SUPPLY CHAIN SERVICE CO., LTD5F,NO.209,...
+  // HAI SU YUN CO.,LTD. (统编:93378747)
+  // 這裡優先擷取第一個完整的英文公司法律後綴，避免把地址一起當成公司名稱。
+  const legalSuffix = /\b(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)\b/i;
+  const firstLine = raw.split('\n').map(x => x.trim()).find(Boolean) || '';
+  const match = firstLine.match(legalSuffix);
+
+  if (match && typeof match.index === 'number') {
+    return firstLine.slice(0, match.index + match[0].length).trim();
+  }
+
+  // 如果第一行沒有常見法律後綴，才退回原本的「第一個非空白行」策略。
+  return firstLine;
+}
+
+function normalizeNotifyName(value) {
+  let s = String(value || '').toUpperCase().trim();
+  s = s.replace(/[.,，。、;；:：'"`]/g, '');
+  s = s.replace(/[()（）\[\]{}]/g, '');
+  s = s.replace(/[\s_\-\/\\]+/g, '');
+  s = s.replace(/\bLIMITEDLIABILITYCOMPANY\b/g, 'LLC');
+  s = s.replace(/\bLIMITEDCOMPANY\b/g, 'LTD');
+  s = s.replace(/\bLIMITED\b/g, 'LTD');
+  s = s.replace(/\bCORPORATION\b/g, 'CORP');
+  s = s.replace(/\bINCORPORATED\b/g, 'INC');
+  return s;
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({length:n+1}, (_,i)=>i);
+  for (let i=1;i<=m;i++) {
+    const cur = [i];
+    for (let j=1;j<=n;j++) {
+      cur[j] = Math.min(
+        cur[j-1] + 1,
+        prev[j] + 1,
+        prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1)
+      );
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function bigramSimilarity(a, b) {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
+  const make = s => {
+    const set = new Set();
+    for (let i=0;i<s.length-1;i++) set.add(s.slice(i,i+2));
+    return set;
+  };
+  const A = make(a), B = make(b);
+  let inter = 0;
+  A.forEach(x => { if (B.has(x)) inter++; });
+  return (2 * inter) / (A.size + B.size);
+}
+
+function notifySimilarity(aRaw, bRaw) {
+  const a = normalizeNotifyName(aRaw);
+  const b = normalizeNotifyName(bRaw);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  const containment = shorter.length >= 8 && longer.includes(shorter) ? shorter.length / longer.length : 0;
+  const edit = 1 - (levenshtein(a, b) / Math.max(a.length, b.length));
+  const bi = bigramSimilarity(a, b);
+  return Math.max(containment, edit * 0.7 + bi * 0.3);
+}
+
+function getNotifyMatches(name) {
+  if (!name || !Array.isArray(consignees) || !consignees.length) return {exact:[], candidates:[]};
+  const normalized = normalizeNotifyName(name);
+  const exact = consignees.filter(c => normalizeNotifyName(c.taiwan_notify_name) === normalized);
+  if (exact.length) return { exact, candidates: [] };
+  const candidates = consignees
+    .filter(c => String(c.taiwan_notify_name || '').trim())
+    .map(c => ({ consignee:c, score:notifySimilarity(name, c.taiwan_notify_name) }))
+    .filter(x => x.score >= 0.68)
+    .sort((a,b) => b.score - a.score)
+    .slice(0,3);
+  return { exact:[], candidates };
+}
+
+function renderNotifyMatch(item) {
+  if (!Array.isArray(consignees) || !consignees.length) {
+    return '<div class="n-match wait">⏳ Supabase 收貨人資料尚未載入</div>';
+  }
+  const result = getNotifyMatches(item.extractedName);
+  if (result.exact.length) {
+    return `<div class="n-match exact">✅ 完全符合（${result.exact.length} 筆）<small>${escapeHtml(result.exact[0].taiwan_notify_name)}</small></div>`;
+  }
+  if (result.candidates.length) {
+    const html = result.candidates.map(x => `<div class="n-candidate">相似度 <b>${Math.round(x.score*100)}%</b><br>${escapeHtml(x.consignee.taiwan_notify_name)}</div>`).join('');
+    return `<div class="n-match similar">🟡 找不到完全相同名稱，提供相似候選${html}<small>候選僅供人工確認，本階段不會自動採用。</small></div>`;
+  }
+  return '<div class="n-match none">❌ 找不到相符或足夠相似的台灣通知人</div>';
+}
+
 function renderNColumnTest() {
   const section = document.getElementById('n-column-test');
   const body = document.getElementById('n-column-test-body');
@@ -540,12 +648,13 @@ function renderNColumnTest() {
     return;
   }
 
-  note.textContent = `成功讀取 N 欄：${nColumnTestRows.length} 筆。左欄保留 Excel 原始內容，中欄是目前第一階段擷取結果；請先人工確認這兩欄是否與原始 Excel 一致。`;
+  note.textContent = `成功讀取 N 欄：${nColumnTestRows.length} 筆；Supabase 收貨人資料：${Array.isArray(consignees) ? consignees.length : 0} 筆。公司名稱會先從 N 欄切出完整法律後綴（如 LTD、INC、CORP），再做「完全比對＋相似候選」測試；黃色候選不會自動採用。`;
   body.innerHTML = nColumnTestRows.map(item => `
     <tr>
       <td>${item.excelRow}</td>
       <td class="n-raw">${escapeHtml(item.rawN)}</td>
       <td class="n-extracted">${escapeHtml(item.extractedName) || '（未擷取到公司名稱）'}</td>
+      <td>${renderNotifyMatch(item)}</td>
     </tr>
   `).join('');
   section.classList.add('show');
