@@ -292,7 +292,7 @@ main { padding:16px; padding-bottom:90px }
       <div class="field-hint">資料庫儲存實際名稱；艙單顯示時若與收貨人相同會自動顯示 SAME AS CONSIGNEE</div>
     </div><div class="field">
       <label>艙號起始值 *</label>
-      <input type="text" id="nc-seal" inputmode="text" placeholder="例如 5501、JW01、PP01">
+      <input type="text" id="nc-seal" inputmode="text" maxlength="4" placeholder="例如 5501、JW01、PP01">
       <div class="field-hint">系統會依提單號順序，從這個號碼開始遞增</div>
     </div><div class="field">
       <label>卸存地 *</label>
@@ -377,7 +377,7 @@ main { padding:16px; padding-bottom:90px }
 
     <div class="field">
       <label>艙號起始值 *</label>
-      <input type="text" id="loc-seal" inputmode="text" placeholder="例如 5501、JW01、PP01">
+      <input type="text" id="loc-seal" inputmode="text" maxlength="4" placeholder="例如 5501、JW01、PP01">
     </div>
 
     <div class="field">
@@ -491,7 +491,7 @@ function compareSeal(a, b){
 // 艙號起始值：允許純數字，或英文字母前綴＋數字（例如 5501、JW01、PP01）。
 function isValidSealStart(value){
   const s = String(value ?? '').trim().toUpperCase();
-  return /^[A-Z]*\d+$/.test(s);
+  return s.length <= 4 && /^[A-Z]*\d+$/.test(s);
 }
 
 async function loadConsignees() {
