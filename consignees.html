@@ -469,6 +469,31 @@ let pendingDelete = null; // {type:'location'|'consignee', id, name}
 let editingLocId = null;
 let editingLocName = null;
 
+
+// 艙號排序：同時支援純數字（7101）與英文字母＋數字（JW01、PP01）。
+function compareSeal(a, b){
+  const sa = String(a ?? '').trim().toUpperCase();
+  const sb = String(b ?? '').trim().toUpperCase();
+  const ma = sa.match(/^([A-Z]*)(\d+)$/);
+  const mb = sb.match(/^([A-Z]*)(\d+)$/);
+  if (ma && mb){
+    const prefixCmp = ma[1].localeCompare(mb[1], 'en');
+    if (prefixCmp !== 0) return prefixCmp;
+    const numCmp = Number(ma[2]) - Number(mb[2]);
+    if (numCmp !== 0) return numCmp;
+    return ma[2].length - mb[2].length;
+  }
+  if (ma && !mb) return -1;
+  if (!ma && mb) return 1;
+  return sa.localeCompare(sb, 'en', {numeric:true});
+}
+
+// 艙號起始值：允許純數字，或英文字母前綴＋數字（例如 5501、JW01、PP01）。
+function isValidSealStart(value){
+  const s = String(value ?? '').trim().toUpperCase();
+  return /^[A-Z]*\d+$/.test(s);
+}
+
 async function loadConsignees() {
   try {
     const res = await fetch(`${SB_URL}/rest/v1/consignees?select=*&order=location.asc,seal_start.asc,name.asc`, {
