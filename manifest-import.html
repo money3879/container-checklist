@@ -531,25 +531,35 @@ function readFile(file) {
 // 先把 N 欄中的公司名稱從地址、統編、電話等後續資訊切出來，
 // 再做格式標準化完全比對；完全比對不到時，再提供相似度候選。
 function extractNotifyCompanyName(rawValue) {
-  const raw = String(rawValue || '').replace(/\r/g, '\n').trim();
+  const raw = String(rawValue || '').replace(/\r\n?/g, '\n').trim();
   if (!raw) return '';
 
-  // 大陸文件常把公司名稱、樓層/地址、電話直接黏在同一行，例如：
-  // SWAN SUPPLY CHAIN SERVICE CO., LTD5F,NO.209,...
-  // HAI SU YUN CO.,LTD. (统编:93378747)
-  // 這裡優先擷取第一個完整的英文公司法律後綴，避免把地址一起當成公司名稱。
-  // 後綴後面可能直接黏著樓層/地址，例如「LTD5F」；因此不能用 \b 限制結尾。
-  // 改成要求後面不是英文字母，讓「LTD5F」也能正確截在 LTD。
+  // N 欄可能把「統編／公司名稱／電話／Email」分成多行，
+  // 也可能全部黏在同一行。先逐行找出最像公司名稱的那一行，
+  // 再在該行截到第一個完整的法律後綴（LTD、CORP、INC、LIMITED...）。
   const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?![A-Z])/i;
-  const firstLine = raw.split('\n').map(x => x.trim()).find(Boolean) || '';
-  const match = firstLine.match(legalSuffix);
+  const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
 
-  if (match && typeof match.index === 'number') {
-    return firstLine.slice(0, match.index + match[0].length).trim();
+  // 排除統編/編號、電話、Email、網址、地址等非公司名稱內容。
+  const isNoiseLine = line => {
+    const compact = line.replace(/\s+/g, '');
+    if (/^#?\d{6,}$/.test(compact)) return true;
+    if (/^(TEL|FAX|EMAIL|MAIL|ATTN|PHONE|MOBILE)\s*[:：+]?/i.test(line)) return true;
+    if (/^(https?:\/\/|www\.)/i.test(line)) return true;
+    if (/^(RM\.?|ROOM|FLOOR|FL\.?|NO\.?\s*\d|SEC\.?\s*\d|\d+F\b)/i.test(line)) return true;
+    return false;
+  };
+
+  for (const line of lines) {
+    if (isNoiseLine(line)) continue;
+    const match = line.match(legalSuffix);
+    if (match && typeof match.index === 'number') {
+      return line.slice(0, match.index + match[0].length).trim();
+    }
   }
 
-  // 如果第一行沒有常見法律後綴，才退回原本的「第一個非空白行」策略。
-  return firstLine;
+  // 找不到法律後綴時，退回第一個不像編號/聯絡資訊的非空白行。
+  return lines.find(line => !isNoiseLine(line)) || '';
 }
 
 function normalizeNotifyName(value) {
