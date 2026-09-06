@@ -537,6 +537,7 @@ function extractNotifyCompanyName(rawValue) {
   // N 欄可能把「統編／公司名稱／電話／Email」分成多行，
   // 也可能全部黏在同一行。先逐行找出最像公司名稱的那一行，
   // 再在該行截到第一個完整的法律後綴（LTD、CORP、INC、LIMITED...）。
+  // 公司法律後綴容錯：允許後面直接接數字/樓層（例如 LTD5F），也允許 INT'L 等常見寫法。
   const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?![A-Z])/i;
   const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
 
@@ -557,6 +558,12 @@ function extractNotifyCompanyName(rawValue) {
       return line.slice(0, match.index + match[0].length).trim();
     }
   }
+
+  // 有些通知人資料可能沒有標準法律後綴，但第一段仍是公司名稱。
+  // 優先找含有公司關鍵字的非聯絡資訊行，避免把地址誤當成公司名稱。
+  const companyHint = /(?:LOGISTICS|EXPRESS|CUSTOMS|FORWARDING|SERVICE|TRANSPORT|AIR|SUPPLY|WORLDWIDE|INTERNATIONAL|INTL)/i;
+  const hinted = lines.find(line => !isNoiseLine(line) && companyHint.test(line));
+  if (hinted) return hinted.trim();
 
   // 找不到法律後綴時，退回第一個不像編號/聯絡資訊的非空白行。
   return lines.find(line => !isNoiseLine(line)) || '';
@@ -886,7 +893,11 @@ function generatePreview() {
     const rowLocation = normalizeLocationCode(row[kLocation]);
     if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
 
-    const consigneeName = String(row[kConsignee] || '').trim();
+    const rawConsigneeName = String(row[kConsignee] || '').trim();
+    // Excel 的「收貨人」有時會把統編與公司名稱分成多行，例如：
+    // #24951752\nJET-F WORLDWIDE EXPRESS CO., LTD.
+    // 這種情況不能拿整段文字直接比對 DB，先擷取真正的公司名稱。
+    const consigneeName = extractNotifyCompanyName(rawConsigneeName) || rawConsigneeName;
     const normalizedConsigneeName = normalizeConsigneeName(consigneeName);
     const match = consignees.find(c =>
       normalizeConsigneeName(c.name) === normalizedConsigneeName &&
@@ -927,6 +938,9 @@ function generatePreview() {
       taxId: match.tax_id || '',
       shortName: match.short_name || '',
       mappedType, sealNumRaw,
+      // T6 目前只處理 003C2002、003C2031；T6 的台灣通知人以 DB 為準。
+      isT6: ['003C2002', '003C2031'].includes(rowLocation),
+      taiwanNotifyName: match.taiwan_notify_name || '',
     });
   }
 
