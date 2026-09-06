@@ -531,26 +531,39 @@ function readFile(file) {
 // 先把 N 欄中的公司名稱從地址、統編、電話等後續資訊切出來，
 // 再做格式標準化完全比對；完全比對不到時，再提供相似度候選。
 function extractNotifyCompanyName(rawValue) {
-  const raw = String(rawValue || '').replace(/\r\n?/g, '\n').trim();
+  // N 欄可能包含統編、公司名稱、地址、電話、Email，甚至把內容黏成一整段。
+  // 先做 Unicode/空白清理，再逐行尋找公司名稱；找不到法律後綴時再用公司關鍵字判斷。
+  let raw = String(rawValue || '')
+    .replace(/\uFEFF/g, '')
+    .replace(/[\u200B-\u200D\u2060]/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u00A0\u3000]/g, ' ')
+    .trim();
   if (!raw) return '';
 
-  // N 欄可能把「統編／公司名稱／電話／Email」分成多行，
-  // 也可能全部黏在同一行。先逐行找出最像公司名稱的那一行，
-  // 再在該行截到第一個完整的法律後綴（LTD、CORP、INC、LIMITED...）。
-  // 公司法律後綴容錯：允許後面直接接數字/樓層（例如 LTD5F），也允許 INT'L 等常見寫法。
-  const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?![A-Z])/i;
-  const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+  const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?=$|[^A-Z])/i;
+  const companyHint = /(?:LOGISTICS|EXPRESS|CUSTOMS|FORWARDING|SERVICE|TRANSPORT|AIR|SUPPLY|WORLDWIDE|INTERNATIONAL|INTL|BROKER|SHIPPING|TRADING|CARGO)/i;
 
-  // 排除統編/編號、電話、Email、網址、地址等非公司名稱內容。
+  // 處理「公司名稱 + 地址」全部在同一行的情況，例如 LTD5F、LTD.,NO.209...
+  const cleanLine = line => String(line || '')
+    .replace(/[\u00A0\u3000]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const lines = raw.split('\n').map(cleanLine).filter(Boolean);
+
   const isNoiseLine = line => {
     const compact = line.replace(/\s+/g, '');
     if (/^#?\d{6,}$/.test(compact)) return true;
-    if (/^(TEL|FAX|EMAIL|MAIL|ATTN|PHONE|MOBILE)\s*[:：+]?/i.test(line)) return true;
+    if (/^(?:統編|統一編號|TAX(?:\s*ID)?|ID)\s*[:：#]?\s*\d+/i.test(line)) return true;
+    if (/^(TEL|FAX|EMAIL|MAIL|ATTN|PHONE|MOBILE|E-MAIL)\s*[:：+]?/i.test(line)) return true;
     if (/^(https?:\/\/|www\.)/i.test(line)) return true;
-    if (/^(RM\.?|ROOM|FLOOR|FL\.?|NO\.?\s*\d|SEC\.?\s*\d|\d+F\b)/i.test(line)) return true;
+    if (/^(RM\.?|ROOM|FLOOR|FL\.?|NO\.?\s*\d|SEC\.?\s*\d|LANE|LN\.?|RD\.?|ROAD|ST\.?|STREET|\d+F\b)/i.test(line)) return true;
+    if (/^(?:TEL|FAX|EMAIL|MAIL)\b/i.test(compact)) return true;
     return false;
   };
 
+  // 第一輪：優先抓有法律後綴的公司名稱。
   for (const line of lines) {
     if (isNoiseLine(line)) continue;
     const match = line.match(legalSuffix);
@@ -559,18 +572,22 @@ function extractNotifyCompanyName(rawValue) {
     }
   }
 
-  // 有些通知人資料可能沒有標準法律後綴，但第一段仍是公司名稱。
-  // 優先找含有公司關鍵字的非聯絡資訊行，避免把地址誤當成公司名稱。
-  const companyHint = /(?:LOGISTICS|EXPRESS|CUSTOMS|FORWARDING|SERVICE|TRANSPORT|AIR|SUPPLY|WORLDWIDE|INTERNATIONAL|INTL)/i;
+  // 第二輪：沒有標準法律後綴時，用公司業務關鍵字判斷。
   const hinted = lines.find(line => !isNoiseLine(line) && companyHint.test(line));
   if (hinted) return hinted.trim();
 
-  // 找不到法律後綴時，退回第一個不像編號/聯絡資訊的非空白行。
+  // 第三輪：如果原始內容沒有換行，嘗試從統編/電話/地址等標記切出第一段。
+  const compactRaw = raw.replace(/\s*\n\s*/g, ' ');
+  const fallback = compactRaw.match(/^(?:#?\d{6,}\s*)?(.+?)(?=\s+(?:\d+F\.?|NO\.?\s*\d|TEL\b|FAX\b|EMAIL\b|MAIL\b|https?:\/\/)|$)/i);
+  if (fallback && fallback[1] && !/^#?\d{6,}$/.test(fallback[1].trim())) {
+    return fallback[1].trim();
+  }
+
   return lines.find(line => !isNoiseLine(line)) || '';
 }
-
 function normalizeNotifyName(value) {
   let s = String(value || '').toUpperCase().trim();
+  s = s.replace(/[’‘′＇]/g, "'");
   // 常見 OCR／人工輸入錯字：把容易混淆的法律後綴統一。
   // 例如 LINITED → LIMITED、CORPORATlON → CORPORATION。
   s = s.replace(/LI[MN]ITED/g, 'LIMITED');
@@ -608,6 +625,7 @@ function normalizeLocationCode(value) {
 
 function normalizeConsigneeName(value) {
   let s = String(value || '').toUpperCase().trim();
+  s = s.replace(/[’‘′＇]/g, "'");
   s = s.replace(/[.,，。、;；:：'"`]/g, '');
   s = s.replace(/[()（）\[\]{}]/g, '');
   s = s.replace(/[\s_\-\/\\]+/g, '');
