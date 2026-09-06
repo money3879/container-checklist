@@ -485,7 +485,7 @@ function getLocationInputs() {
     const locInput = wrap.querySelector('input[id]:not([id$="-ship2"])');
     const ship2Input = wrap.querySelector('input[id$="-ship2"]');
     return {
-      location: locInput.value.trim().toUpperCase(),
+      location: normalizeLocationCode(locInput.value),
       ship2Name: ship2Input.value.trim()
     };
   }).filter(x => x.location);
@@ -564,14 +564,47 @@ function extractNotifyCompanyName(rawValue) {
 
 function normalizeNotifyName(value) {
   let s = String(value || '').toUpperCase().trim();
+  // 常見 OCR／人工輸入錯字：把容易混淆的法律後綴統一。
+  // 例如 LINITED → LIMITED、CORPORATlON → CORPORATION。
+  s = s.replace(/LI[MN]ITED/g, 'LIMITED');
+  s = s.replace(/LIMLTED/g, 'LIMITED');
+  s = s.replace(/LIMlTED/g, 'LIMITED');
+  s = s.replace(/CORPORATlON/g, 'CORPORATION');
   s = s.replace(/[.,，。、;；:：'"`]/g, '');
   s = s.replace(/[()（）\[\]{}]/g, '');
   s = s.replace(/[\s_\-\/\\]+/g, '');
-  s = s.replace(/\bLIMITEDLIABILITYCOMPANY\b/g, 'LLC');
-  s = s.replace(/\bLIMITEDCOMPANY\b/g, 'LTD');
-  s = s.replace(/\bLIMITED\b/g, 'LTD');
-  s = s.replace(/\bCORPORATION\b/g, 'CORP');
-  s = s.replace(/\bINCORPORATED\b/g, 'INC');
+  s = s.replace(/LIMITEDLIABILITYCOMPANY/g, 'LLC');
+  s = s.replace(/LIMITEDCOMPANY/g, 'LTD');
+  s = s.replace(/LIMITED/g, 'LTD');
+  s = s.replace(/CORPORATION/g, 'CORP');
+  s = s.replace(/INCORPORATED/g, 'INC');
+  return s;
+}
+
+// 將原始 Excel 的卸存地整理成資料庫使用的代碼。
+// 例如「专区代码003C2031」「专区代碼TPEN051S 」都會整理成 003C2031 / TPEN051S。
+function normalizeLocationCode(value) {
+  let s = String(value || '').toUpperCase().trim();
+  if (!s) return '';
+  s = s.replace(/\s+/g, '');
+  const zoneMatch = s.match(/(?:专区代码|专区代碼)([A-Z0-9]+)$/i);
+  if (zoneMatch) return zoneMatch[1].toUpperCase();
+  // 若前面還有其他文字，優先取最後一段連續的英數代碼。
+  const tailMatch = s.match(/([A-Z0-9]+)$/);
+  return tailMatch ? tailMatch[1].toUpperCase() : s;
+}
+
+function normalizeConsigneeName(value) {
+  let s = String(value || '').toUpperCase().trim();
+  s = s.replace(/[.,，。、;；:：'"`]/g, '');
+  s = s.replace(/[()（）\[\]{}]/g, '');
+  s = s.replace(/[\s_\-\/\\]+/g, '');
+  // 公司法律後綴與通知人相同方式標準化，處理 LTD/LIMITED、CORP/CORPORATION 等差異。
+  s = s.replace(/LIMITEDLIABILITYCOMPANY/g, 'LLC');
+  s = s.replace(/LIMITEDCOMPANY/g, 'LTD');
+  s = s.replace(/LIMITED/g, 'LTD');
+  s = s.replace(/CORPORATION/g, 'CORP');
+  s = s.replace(/INCORPORATED/g, 'INC');
   return s;
 }
 
@@ -622,17 +655,24 @@ function notifySimilarity(aRaw, bRaw) {
 }
 
 function getNotifyMatches(name) {
-  if (!name || !Array.isArray(consignees) || !consignees.length) return {exact:[], candidates:[]};
+  if (!name || !Array.isArray(consignees) || !consignees.length) return {exact:[], candidates:[], byConsignee:[]};
   const normalized = normalizeNotifyName(name);
   const exact = consignees.filter(c => normalizeNotifyName(c.taiwan_notify_name) === normalized);
-  if (exact.length) return { exact, candidates: [] };
+  if (exact.length) return { exact, candidates: [], byConsignee: [] };
+
+  // 有些 Excel 的 N 欄會直接寫「收貨人公司名稱」，而 DB 該筆資料的
+  // taiwan_notify_name 可能是另一家公司。此時用收貨人名稱作第二層精確對應，
+  // 避免像 PGL 這種資料被誤判成「完全找不到」。
+  const byConsignee = consignees.filter(c => normalizeConsigneeName(c.name) === normalized);
+  if (byConsignee.length) return { exact: [], candidates: [], byConsignee };
+
   const candidates = consignees
     .filter(c => String(c.taiwan_notify_name || '').trim())
     .map(c => ({ consignee:c, score:notifySimilarity(name, c.taiwan_notify_name) }))
     .filter(x => x.score >= 0.68)
     .sort((a,b) => b.score - a.score)
     .slice(0,3);
-  return { exact:[], candidates };
+  return { exact:[], candidates, byConsignee:[] };
 }
 
 function renderNotifyMatch(item) {
@@ -642,6 +682,10 @@ function renderNotifyMatch(item) {
   const result = getNotifyMatches(item.extractedName);
   if (result.exact.length) {
     return `<div class="n-match exact">✅ 完全符合（${result.exact.length} 筆）<small>${escapeHtml(result.exact[0].taiwan_notify_name)}</small></div>`;
+  }
+  if (result.byConsignee.length) {
+    const html = result.byConsignee.map(c => `<div class="n-candidate">以收貨人名稱精確對應<br>${escapeHtml(c.name)}<small>此筆 DB 的台灣通知人：${escapeHtml(c.taiwan_notify_name || '（未設定）')}</small></div>`).join('');
+    return `<div class="n-match similar">🟡 N 欄名稱與 DB 收貨人名稱相符${html}<small>這是第二層對應，優先順序仍低於「台灣通知人」完全比對。</small></div>`;
   }
   if (result.candidates.length) {
     const html = result.candidates.map(x => `<div class="n-candidate">相似度 <b>${Math.round(x.score*100)}%</b><br>${escapeHtml(x.consignee.taiwan_notify_name)}</div>`).join('');
@@ -815,7 +859,7 @@ function generatePreview() {
   const notFound = new Set();
   manifestByLocation = {};
 
-  const locationCodes = locationList.map(l => l.location);
+  const locationCodes = locationList.map(l => normalizeLocationCode(l.location));
   locationList.forEach(l => {
     manifestByLocation[l.location] = { items: [], ship2Name: l.ship2Name };
   });
@@ -831,11 +875,15 @@ function generatePreview() {
   }
 
   for (const row of sorted) {
-    const rowLocation = String(row[kLocation] || '').trim().toUpperCase();
+    const rowLocation = normalizeLocationCode(row[kLocation]);
     if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
 
     const consigneeName = String(row[kConsignee] || '').trim();
-    const match = consignees.find(c => c.name.trim() === consigneeName && c.location === rowLocation);
+    const normalizedConsigneeName = normalizeConsigneeName(consigneeName);
+    const match = consignees.find(c =>
+      normalizeConsigneeName(c.name) === normalizedConsigneeName &&
+      normalizeLocationCode(c.location) === rowLocation
+    );
 
     if (!match) {
       notFound.add(`${consigneeName}（卸存地：${rowLocation}）`);
