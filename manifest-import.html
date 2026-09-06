@@ -578,6 +578,11 @@ function normalizeNotifyName(value) {
   s = s.replace(/LIMITED/g, 'LTD');
   s = s.replace(/CORPORATION/g, 'CORP');
   s = s.replace(/INCORPORATED/g, 'INC');
+  // INT'L / INTL 與 INTERNATIONAL 視為同一種公司名稱寫法，
+  // 例如 JIN XIN 260903A(1).xls 的 PGL PACIFIC GLORY INT'L...
+  // 對應 DB 的 PGL PACIFIC GLORY INTERNATIONAL...。
+  s = s.replace(/INTERNATIONAL/g, 'INTL');
+  s = s.replace(/INTL/g, 'INTL');
   return s;
 }
 
@@ -605,6 +610,9 @@ function normalizeConsigneeName(value) {
   s = s.replace(/LIMITED/g, 'LTD');
   s = s.replace(/CORPORATION/g, 'CORP');
   s = s.replace(/INCORPORATED/g, 'INC');
+  // 收貨人名稱也統一 INT'L / INTL / INTERNATIONAL。
+  s = s.replace(/INTERNATIONAL/g, 'INTL');
+  s = s.replace(/INTL/g, 'INTL');
   return s;
 }
 
@@ -685,7 +693,7 @@ function renderNotifyMatch(item) {
   }
   if (result.byConsignee.length) {
     const html = result.byConsignee.map(c => `<div class="n-candidate">以收貨人名稱精確對應<br>${escapeHtml(c.name)}<small>此筆 DB 的台灣通知人：${escapeHtml(c.taiwan_notify_name || '（未設定）')}</small></div>`).join('');
-    return `<div class="n-match similar">🟡 N 欄名稱與 DB 收貨人名稱相符${html}<small>這是第二層對應，優先順序仍低於「台灣通知人」完全比對。</small></div>`;
+    return `<div class="n-match similar">🟡 N 欄名稱與 DB 收貨人名稱相符${html}<small>若為 T6 資料，實際艙單直接使用這筆 DB 的「台灣通知人」；N 欄比對僅保留作為檢查用途。</small></div>`;
   }
   if (result.candidates.length) {
     const html = result.candidates.map(x => `<div class="n-candidate">相似度 <b>${Math.round(x.score*100)}%</b><br>${escapeHtml(x.consignee.taiwan_notify_name)}</div>`).join('');
