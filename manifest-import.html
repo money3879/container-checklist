@@ -514,6 +514,13 @@ function readFile(file) {
         return { excelRow: index + 2, rawN, extractedName };
       }).filter(x => x.rawN);
 
+      // 保留每筆資料原始 Excel N 欄，供後續「收貨人＋卸存地」命中後，
+      // 在非 T6 的多筆同收貨人/同卸存地下再用台灣通知人選出正確 DB 資料。
+      json.forEach((row, index) => {
+        row.__excelRow = index + 2;
+        row.__rawTaiwanNotify = String(dataRows[index]?.[13] ?? '').trim();
+      });
+
       uploadedRows = json;
       document.getElementById('file-loaded-text').textContent = `已載入 ${file.name}（共 ${json.length} 筆資料）`;
       document.getElementById('file-loaded').classList.add('show');
@@ -938,19 +945,58 @@ function generatePreview() {
     if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
 
     const rawConsigneeName = String(row[kConsignee] || '').trim();
-    // 收貨人＋卸存地是所有資料的第一優先比對條件。
-    // 例如 JIN XIN 260903A(1).xls 的「#24951752\nJET-F WORLDWIDE EXPRESS CO., LTD.」
-    // 必須先解析成 JET-F，再與 DB 的收貨人＋003C2031 比對；N 欄台灣通知人只作後續檢查。
+    // 【固定規則】所有資料（T6 / 非 T6）一律先用「收貨人＋卸存地」找 DB。
+    // 收貨人可能是「#統編\n公司名稱」，所以先解析真正公司名稱。
     const consigneeName = extractConsigneeCompanyName(rawConsigneeName) || rawConsigneeName;
     const normalizedConsigneeName = normalizeConsigneeName(consigneeName);
-    const match = consignees.find(c =>
+    const sameConsigneeLocation = consignees.filter(c =>
       normalizeConsigneeName(c.name) === normalizedConsigneeName &&
       normalizeLocationCode(c.location) === rowLocation
     );
 
-    if (!match) {
+    let match = null;
+    const isT6 = ['003C2002', '003C2031'].includes(rowLocation);
+
+    if (!sameConsigneeLocation.length) {
       notFound.add(`${consigneeName}（卸存地：${rowLocation}）`);
       continue;
+    }
+
+    if (isT6) {
+      // T6（目前只有 003C2002、003C2031）：
+      // 「收貨人＋卸存地」命中後，直接採用 DB 的 taiwan_notify_name。
+      // Excel N 欄只作檢查，不得覆蓋，也不得阻擋 T6。
+      if (sameConsigneeLocation.length === 1) {
+        match = sameConsigneeLocation[0];
+      } else {
+        notFound.add(`${consigneeName}（卸存地：${rowLocation}）存在 ${sameConsigneeLocation.length} 筆 DB 資料，T6 無法判定唯一收貨人資料`);
+        continue;
+      }
+    } else if (sameConsigneeLocation.length === 1) {
+      // 非 T6 若「收貨人＋卸存地」只有一筆，直接使用這筆；N 欄不必介入。
+      match = sameConsigneeLocation[0];
+    } else {
+      // 非 T6 若同一「收貨人＋卸存地」有多筆，才用 JIN XIN 的 N 欄台灣通知人
+      // 從候選 DB 資料中選出正確的 taiwan_notify_name。
+      const rawNotify = String(row.__rawTaiwanNotify || '').trim();
+      const notifyName = extractNotifyCompanyName(rawNotify) || rawNotify;
+      const normalizedNotifyName = normalizeNotifyName(notifyName);
+      const notifyMatches = sameConsigneeLocation.filter(c =>
+        normalizeNotifyName(c.taiwan_notify_name) === normalizedNotifyName
+      );
+
+      if (notifyMatches.length === 1) {
+        match = notifyMatches[0];
+      } else if (notifyMatches.length > 1) {
+        notFound.add(`${consigneeName}（卸存地：${rowLocation}）的 N 欄台灣通知人對應到多筆 DB 資料，無法唯一判定`);
+        continue;
+      } else {
+        const candidateNames = sameConsigneeLocation
+          .map(c => c.taiwan_notify_name || '（未設定）')
+          .join(' / ');
+        notFound.add(`${consigneeName}（卸存地：${rowLocation}）有多筆 DB 資料，但 N 欄「${notifyName || '（空白）'}」沒有對應；候選台灣通知人：${candidateNames}`);
+        continue;
+      }
     }
 
     const counterKey = `${consigneeName}|${rowLocation}`;
@@ -983,7 +1029,7 @@ function generatePreview() {
       shortName: match.short_name || '',
       mappedType, sealNumRaw,
       // T6 目前只處理 003C2002、003C2031；T6 的台灣通知人以 DB 為準。
-      isT6: ['003C2002', '003C2031'].includes(rowLocation),
+      isT6,
       taiwanNotifyName: match.taiwan_notify_name || '',
     });
   }
