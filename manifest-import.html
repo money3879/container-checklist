@@ -626,19 +626,45 @@ function normalizeLocationCode(value) {
 function normalizeConsigneeName(value) {
   let s = String(value || '').toUpperCase().trim();
   s = s.replace(/[’‘′＇]/g, "'");
+  // 收貨人名稱比對忽略標點、空白、連字號與常見公司法律後綴寫法。
   s = s.replace(/[.,，。、;；:：'"`]/g, '');
   s = s.replace(/[()（）\[\]{}]/g, '');
   s = s.replace(/[\s_\-\/\\]+/g, '');
-  // 公司法律後綴與通知人相同方式標準化，處理 LTD/LIMITED、CORP/CORPORATION 等差異。
   s = s.replace(/LIMITEDLIABILITYCOMPANY/g, 'LLC');
   s = s.replace(/LIMITEDCOMPANY/g, 'LTD');
   s = s.replace(/LIMITED/g, 'LTD');
   s = s.replace(/CORPORATION/g, 'CORP');
   s = s.replace(/INCORPORATED/g, 'INC');
-  // 收貨人名稱也統一 INT'L / INTL / INTERNATIONAL。
+  // INT'L / INT’L / INTL / INTERNATIONAL 視為同一寫法。
   s = s.replace(/INTERNATIONAL/g, 'INTL');
   s = s.replace(/INTL/g, 'INTL');
   return s;
+}
+
+// 專門處理「收貨人」欄位。不要與 N 欄台灣通知人的解析混用，
+// 因為收貨人是所有艙單資料的第一優先鍵。
+function extractConsigneeCompanyName(rawValue) {
+  let raw = String(rawValue || '')
+    .replace(/\uFEFF/g, '')
+    .replace(/[\u200B-\u200D\u2060]/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u00A0\u3000]/g, ' ')
+    .trim();
+  if (!raw) return '';
+
+  const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?=$|[^A-Z])/i;
+  const lines = raw.split('\n').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  // 收貨人常見格式：#統編在第一行，公司名稱在第二行。
+  for (const line of lines) {
+    if (/^#?\d{6,}$/.test(line.replace(/\s+/g, ''))) continue;
+    const m = line.match(legalSuffix);
+    if (m && typeof m.index === 'number') return line.slice(0, m.index + m[0].length).trim();
+  }
+
+  // 若沒有法律後綴，取第一個不是統編的非空行；這仍比拿整段「統編+公司名」安全。
+  const firstUseful = lines.find(line => !/^#?\d{6,}$/.test(line.replace(/\s+/g, '')));
+  return firstUseful || '';
 }
 
 function levenshtein(a, b) {
@@ -912,10 +938,10 @@ function generatePreview() {
     if (!locationCodes.includes(rowLocation)) continue; // 不在本次要處理的卸存地清單裡，略過
 
     const rawConsigneeName = String(row[kConsignee] || '').trim();
-    // Excel 的「收貨人」有時會把統編與公司名稱分成多行，例如：
-    // #24951752\nJET-F WORLDWIDE EXPRESS CO., LTD.
-    // 這種情況不能拿整段文字直接比對 DB，先擷取真正的公司名稱。
-    const consigneeName = extractNotifyCompanyName(rawConsigneeName) || rawConsigneeName;
+    // 收貨人＋卸存地是所有資料的第一優先比對條件。
+    // 例如 JIN XIN 260903A(1).xls 的「#24951752\nJET-F WORLDWIDE EXPRESS CO., LTD.」
+    // 必須先解析成 JET-F，再與 DB 的收貨人＋003C2031 比對；N 欄台灣通知人只作後續檢查。
+    const consigneeName = extractConsigneeCompanyName(rawConsigneeName) || rawConsigneeName;
     const normalizedConsigneeName = normalizeConsigneeName(consigneeName);
     const match = consignees.find(c =>
       normalizeConsigneeName(c.name) === normalizedConsigneeName &&
