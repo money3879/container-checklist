@@ -660,9 +660,13 @@ function extractConsigneeCompanyName(rawValue) {
   if (!raw) return '';
 
   const legalSuffix = /(?:CO\.?\s*,?\s*LTD\.?|LTD\.?|LIMITED|INCORPORATED|INC\.?|CORPORATION|CORP\.?|COMPANY)(?=$|[^A-Z])/i;
+  // 有些 Excel 會把「#統編 / 公司名稱」放在同一行，例如：
+  // 「#24951752 / JET-F WORLDWIDE EXPRESS CO., LTD.」。
+  // 先移除最前面的統編與分隔符，避免統編被一起拿去做收貨人名稱比對。
+  raw = raw.replace(/^#?\d{6,}\s*(?:[/／|｜、，,;；:]\s*)?/i, '').trim();
   const lines = raw.split('\n').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
-  // 收貨人常見格式：#統編在第一行，公司名稱在第二行。
+  // 收貨人常見格式：#統編在第一行，公司名稱在第二行；或統編與公司名同一行。
   for (const line of lines) {
     if (/^#?\d{6,}$/.test(line.replace(/\s+/g, ''))) continue;
     const m = line.match(legalSuffix);
