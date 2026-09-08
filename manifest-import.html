@@ -318,7 +318,7 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
       <span id="file-loaded-text"></span>
     </div>
 
-    <!-- 第一階段：只確認大陸 Excel 的 N 欄是否被正確讀取。暫不做 Supabase 比對或 Q 欄判斷。 -->
+    <!-- N 欄是診斷測試；T6 實際命中結果請看下面的「T6 實際艙單匹配測試」。 -->
     <div class="n-column-test" id="n-column-test">
       <div class="n-column-test-head">🔎 第一階段：大陸 Excel「N 欄」讀取測試</div>
       <div class="n-column-test-note" id="n-column-test-note"></div>
@@ -328,6 +328,20 @@ table.excel-view tbody:first-of-type td { text-align:center; font-size:.68rem }
             <tr><th>Excel 資料列</th><th>N 欄原始內容</th><th>解析出的台灣通知人公司名稱</th><th>Supabase 比對結果 / 相似候選</th></tr>
           </thead>
           <tbody id="n-column-test-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- T6 實際命中測試：這裡才是「收貨人＋卸存地」對 DB 的真正匹配結果；N 欄只作診斷。 -->
+    <div class="n-column-test" id="t6-consignee-test">
+      <div class="n-column-test-head">🎯 T6 實際艙單匹配測試：收貨人＋卸存地 → Supabase</div>
+      <div class="n-column-test-note" id="t6-consignee-test-note"></div>
+      <div class="n-column-test-scroll">
+        <table>
+          <thead>
+            <tr><th>Excel 資料列</th><th>收貨人原始內容</th><th>解析後收貨人</th><th>卸存地</th><th>實際命中 DB</th><th>T6 最終台灣通知人</th></tr>
+          </thead>
+          <tbody id="t6-consignee-test-body"></tbody>
         </table>
       </div>
     </div>
@@ -437,6 +451,8 @@ async function init() {
     console.error('初始化載入失敗', e);
   }
   addLocationInput();
+  renderT6ConsigneeDbTest();
+  renderNColumnTest();
 }
 
 function onShipSelect() {
@@ -525,6 +541,7 @@ function readFile(file) {
       document.getElementById('file-loaded-text').textContent = `已載入 ${file.name}（共 ${json.length} 筆資料）`;
       document.getElementById('file-loaded').classList.add('show');
       renderNColumnTest();
+      renderT6ConsigneeDbTest();
     } catch(err) {
       nColumnTestRows = [];
       document.getElementById('n-column-test').classList.remove('show');
@@ -770,6 +787,77 @@ function renderNotifyMatch(item) {
     return `<div class="n-match similar">🟡 找不到完全相同名稱，提供相似候選${html}<small>候選僅供人工確認，本階段不會自動採用。</small></div>`;
   }
   return '<div class="n-match none">❌ 找不到相符或足夠相似的台灣通知人</div>';
+}
+
+function renderT6ConsigneeDbTest() {
+  const section = document.getElementById('t6-consignee-test');
+  const body = document.getElementById('t6-consignee-test-body');
+  const note = document.getElementById('t6-consignee-test-note');
+  if (!section || !body || !note || !Array.isArray(uploadedRows) || !uploadedRows.length) {
+    if (section) section.classList.remove('show');
+    return;
+  }
+
+  const sample = uploadedRows[0];
+  const keys = Object.keys(sample);
+  const findKey = patterns => keys.find(k => patterns.some(p => k.includes(p)));
+  const kConsignee = findKey(['收货人','收貨人']);
+  const kLocation = findKey(['卸存地']);
+  if (!kConsignee || !kLocation) {
+    section.classList.remove('show');
+    return;
+  }
+
+  const t6Rows = uploadedRows.map((row, index) => ({ row, excelRow: row.__excelRow || index + 2 }))
+    .filter(x => ['003C2002','003C2031'].includes(normalizeLocationCode(x.row[kLocation])));
+
+  if (!t6Rows.length) {
+    section.classList.remove('show');
+    return;
+  }
+
+  note.textContent = '這一區才是 T6 實際艙單會採用的 DB 匹配結果：一律先用「收貨人＋卸存地」找 DB；T6 最終台灣通知人直接取命中 DB 的 taiwan_notify_name。N 欄不會覆蓋這個結果。';
+
+  body.innerHTML = t6Rows.map(({row, excelRow}) => {
+    const raw = String(row[kConsignee] || '').trim();
+    const parsed = extractConsigneeCompanyName(raw) || raw;
+    const loc = normalizeLocationCode(row[kLocation]);
+    let candidates = consignees.filter(c =>
+      normalizeConsigneeName(c.name) === normalizeConsigneeName(parsed) &&
+      normalizeLocationCode(c.location) === loc
+    );
+    const taxId = extractConsigneeTaxId(raw);
+    if (taxId && candidates.length) {
+      const taxMatches = candidates.filter(c => String(c.tax_id || '').replace(/\D/g,'') === taxId);
+      if (taxMatches.length === 1) candidates = taxMatches;
+    }
+
+    if (candidates.length === 1) {
+      const c = candidates[0];
+      return `<tr>
+        <td>${excelRow}</td>
+        <td class="n-raw">${escapeHtml(raw)}</td>
+        <td class="n-extracted">${escapeHtml(parsed)}</td>
+        <td><b>${escapeHtml(loc)}</b></td>
+        <td class="n-match exact">✅ 找到 1 筆<br>${escapeHtml(c.name)}<small>統編：${escapeHtml(c.tax_id || '—')}<br>DB 卸存地：${escapeHtml(c.location || '—')}</small></td>
+        <td class="n-match exact"><b>${escapeHtml(c.taiwan_notify_name || '（未設定）')}</b><small>T6 直接採用 DB 台灣通知人；N 欄不覆蓋。</small></td>
+      </tr>`;
+    }
+
+    const detail = candidates.length
+      ? `找到 ${candidates.length} 筆同收貨人＋卸存地資料，無法唯一判定`
+      : '❌ 找不到「收貨人＋卸存地」對應的 DB 資料';
+    return `<tr>
+      <td>${excelRow}</td>
+      <td class="n-raw">${escapeHtml(raw)}</td>
+      <td class="n-extracted">${escapeHtml(parsed)}</td>
+      <td><b>${escapeHtml(loc)}</b></td>
+      <td class="n-match none">${escapeHtml(detail)}</td>
+      <td class="n-match none">—</td>
+    </tr>`;
+  }).join('');
+
+  section.classList.add('show');
 }
 
 function renderNColumnTest() {
