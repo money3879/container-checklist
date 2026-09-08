@@ -425,7 +425,30 @@ let manifestByLocation = {};
 let currentLocationTab = null;
 let currentView = 'table';
 
-const CONTAINER_TYPE_MAP = { '40HC': '45G1', '20GP': '22G1' };
+const CONTAINER_TYPE_MAP = {
+  '40HC': '45G1',
+  '20GP': '22G1',
+  "1X20'GP": '22G1',
+  '1X20GP': '22G1',
+  '1X20 GP': '22G1',
+  "1X40'HC": '45G1',
+  '1X40HC': '45G1',
+  '1X40 HC': '45G1'
+};
+
+function mapContainerTypeForManifest(rawType) {
+  const original = String(rawType || '').trim().toUpperCase();
+  if (!original) return '';
+  if (CONTAINER_TYPE_MAP[original]) return CONTAINER_TYPE_MAP[original];
+
+  // 容許 Excel 將數量、尺寸與型式寫成「1X20'GP」等格式，統一轉成艙單櫃型代碼。
+  const normalized = original
+    .replace(/[’‘′＇]/g, "'")
+    .replace(/\s+/g, '');
+  if (/^1X20'?GP$/.test(normalized) || /^20'?GP$/.test(normalized)) return '22G1';
+  if (/^1X40'?HC$/.test(normalized) || /^40'?HC$/.test(normalized)) return '45G1';
+  return String(rawType || '').trim();
+}
 
 async function init() {
   try {
@@ -1146,7 +1169,7 @@ function generatePreview() {
     const pieces = (row[kPiecesTW] !== '' && row[kPiecesTW] != null) ? row[kPiecesTW] : (kPieces ? row[kPieces] : '');
     const weight = (row[kWeightTW] !== '' && row[kWeightTW] != null) ? row[kWeightTW] : (kWeightRaw ? row[kWeightRaw] : '');
     const containerType = String(row[kType] || '').trim();
-    const mappedType = CONTAINER_TYPE_MAP[containerType] || containerType;
+    const mappedType = mapContainerTypeForManifest(containerType);
 
     const cargoDesc = `EXPRESS PACKAGE  ${intlCode}/${mappedType}/2/${sealNumRaw}`;
     const consigneeInfo = `收貨人:${consigneeName}\n${match.address || ''}`;
