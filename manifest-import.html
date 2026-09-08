@@ -650,6 +650,14 @@ function normalizeConsigneeName(value) {
 
 // 專門處理「收貨人」欄位。不要與 N 欄台灣通知人的解析混用，
 // 因為收貨人是所有艙單資料的第一優先鍵。
+// 從收貨人原始欄位抓出可能存在的統編，用來驗證「收貨人＋卸存地」解析結果。
+// 規則仍然是先以「收貨人＋卸存地」找 DB；統編只在名稱解析結果需要驗證/消歧時使用。
+function extractConsigneeTaxId(rawValue) {
+  const raw = String(rawValue || '').replace(/\s+/g, ' ').trim();
+  const m = raw.match(/(?:^|[^0-9])#?([0-9]{8})(?=$|[^0-9])/);
+  return m ? m[1] : '';
+}
+
 function extractConsigneeCompanyName(rawValue) {
   let raw = String(rawValue || '')
     .replace(/\uFEFF/g, '')
@@ -873,6 +881,7 @@ function normalizeRocDateInput(el) {
 /* ══ 核心：產生艙單資料（依卸存地分組） ══ */
 function generatePreview() {
   clearError();
+  window._manifestMatchTrace = [];
 
   const shipId = document.getElementById('f-ship-select').value;
   const voyage = document.getElementById('f-voyage').value.trim();
@@ -953,10 +962,23 @@ function generatePreview() {
     // 收貨人可能是「#統編\n公司名稱」，所以先解析真正公司名稱。
     const consigneeName = extractConsigneeCompanyName(rawConsigneeName) || rawConsigneeName;
     const normalizedConsigneeName = normalizeConsigneeName(consigneeName);
-    const sameConsigneeLocation = consignees.filter(c =>
+    let sameConsigneeLocation = consignees.filter(c =>
       normalizeConsigneeName(c.name) === normalizedConsigneeName &&
       normalizeLocationCode(c.location) === rowLocation
     );
+
+    // 若原始「收貨人」同時帶有 8 碼統編，先用「收貨人＋卸存地」找到候選後，
+    // 再以統編驗證/消歧。這不改變主規則，只是避免 Excel 的「#統編 / 公司名」格式
+    // 在解析異常時，把 JET-F 誤判成同卸存地的其他公司（例如 PGL）。
+    const consigneeTaxId = extractConsigneeTaxId(rawConsigneeName);
+    if (consigneeTaxId && sameConsigneeLocation.length) {
+      const taxMatches = sameConsigneeLocation.filter(c =>
+        String(c.tax_id || '').replace(/\D/g, '') === consigneeTaxId
+      );
+      if (taxMatches.length === 1) {
+        sameConsigneeLocation = taxMatches;
+      }
+    }
 
     let match = null;
     const isT6 = ['003C2002', '003C2031'].includes(rowLocation);
@@ -1001,6 +1023,24 @@ function generatePreview() {
         notFound.add(`${consigneeName}（卸存地：${rowLocation}）有多筆 DB 資料，但 N 欄「${notifyName || '（空白）'}」沒有對應；候選台灣通知人：${candidateNames}`);
         continue;
       }
+    }
+
+    // 保留最後實際採用的 DB 資料，方便檢查「Excel N 欄」是否只是診斷資訊，
+    // 以及確認 T6 是否真的使用 match.taiwan_notify_name。
+    if (typeof window !== 'undefined') {
+      window._manifestMatchTrace = window._manifestMatchTrace || [];
+      window._manifestMatchTrace.push({
+        excelRow: row.__excelRow || '',
+        rawConsignee: rawConsigneeName,
+        parsedConsignee: consigneeName,
+        location: rowLocation,
+        isT6,
+        rawN: row.__rawTaiwanNotify || '',
+        matchedDbConsignee: match.name || '',
+        matchedDbLocation: match.location || '',
+        matchedDbTaxId: match.tax_id || '',
+        dbTaiwanNotifyName: match.taiwan_notify_name || '',
+      });
     }
 
     const counterKey = `${consigneeName}|${rowLocation}`;
