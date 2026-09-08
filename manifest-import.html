@@ -688,6 +688,15 @@ function normalizeConsigneeName(value) {
   return s;
 }
 
+// 判斷「台灣通知人」是否就是同一個收貨人。
+// 比對時沿用既有的名稱正規化規則，忽略公司名稱常見的標點、空白、
+// INTERNATIONAL / INT'L、CORPORATION / CORP、LIMITED / LTD 等寫法差異。
+function isSameConsigneeAndTaiwanNotify(consigneeName, taiwanNotifyName) {
+  const consignee = normalizeConsigneeName(consigneeName);
+  const notify = normalizeNotifyName(taiwanNotifyName);
+  return !!consignee && !!notify && consignee === notify;
+}
+
 // 專門處理「收貨人」欄位。不要與 N 欄台灣通知人的解析混用，
 // 因為收貨人是所有艙單資料的第一優先鍵。
 // 從收貨人原始欄位抓出可能存在的統編，用來驗證「收貨人＋卸存地」解析結果。
@@ -1858,12 +1867,20 @@ async function buildManifestXlsx(loc) {
     api.setValue(`K${row}`,it.consigneeInfo);
 
     // N~V 依最新範本的欄位定義：
-    // N=(1)、O=收貨人名稱(英文)、P=封條、Q=SAME AS CONSIGNEE、
+    // N=(1)、O=收貨人名稱(英文)、P=封條、Q=台灣通知人、
     // R=統一編號、S=收貨人中文簡稱、T=EXPRESS PACKAGE、U=櫃型、V=2。
     api.setValue(`N${row}`,it.remark || '(1)');
     api.setValue(`O${row}`,it.consigneeName || '');
     api.setValue(`P${row}`,it.sealNumRaw || '');
-    api.setValue(`Q${row}`,'SAME AS CONSIGNEE\n');
+
+    // Q 欄規則：先完成「收貨人＋卸存地」的 DB 匹配，並依既有規則
+    // 決定 match（非 T6 多筆時已用 Excel N 欄消歧；T6 則直接採 DB）。
+    // 台灣通知人與收貨人相同 → SAME AS CONSIGNEE；不同 → 顯示 DB 的台灣通知人。
+    const qNotify = String(it.taiwanNotifyName || '').trim();
+    const qValue = isSameConsigneeAndTaiwanNotify(it.consigneeName, qNotify)
+      ? 'SAME AS CONSIGNEE\n'
+      : qNotify;
+    api.setValue(`Q${row}`, qValue);
 
     if (!taxIdShown.has(it.consigneeShort)) {
       api.setValue(`R${row}`,it.taxId || '');
