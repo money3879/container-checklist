@@ -1406,9 +1406,9 @@ async function renderExcelStyleView() {
     const container = document.getElementById('excel-preview-table');
 
     // 艙單預覽只顯示 Excel 的列印範圍。
-    // Template 1 筆時列印範圍是 A1:N19；每增加 1 筆資料，列印範圍跟著固定區往下延伸。
+    // Template 基準列印範圍是 A1:N21；超過 3 筆時，列印範圍會跟著新增資料列往下延伸。
     const startRow = 1;
-    const endRow = Math.min(19 + Math.max(0, items.length - 1), ws.rowCount);
+    const endRow = Math.min(21 + Math.max(0, items.length - 3), ws.rowCount);
     const startCol = 1;
     const endCol = 14; // N 欄
 
@@ -1541,8 +1541,8 @@ async function buildManifestXlsx(loc) {
 
   // ═══════════════════════════════════════════════════════════════════
   // 第五階段：運送單動態工作表
-  // Template 現在只提供「運送第1筆」一張完整母版。
-  // 超過1筆時，複製「運送第1筆」的完整 XML 與工作表關聯，
+  // Template 已提供「運送第1筆～運送第3筆」三張完整母版。
+  // 超過3筆時，複製「運送第3筆」的完整 XML 與工作表關聯，
   // 再依 Template 原有公式模式只調整艙單／貨櫃清單的來源列。
   // 每張運送單列印範圍固定 A1:N41。
   // ═══════════════════════════════════════════════════════════════════
@@ -1732,7 +1732,7 @@ async function buildManifestXlsx(loc) {
   const api=sheetApi(sheetXml);
   const {root,sheetData,rows,getRow}=api;
 
-  const templateStart=16, templateCount=1, lastTemplateRow=16, footerStart=17;
+  const templateStart=16, templateCount=3, lastTemplateRow=18, footerStart=19;
   const extra=Math.max(0,items.length-templateCount);
 
   if (extra>0) {
@@ -1744,7 +1744,7 @@ async function buildManifestXlsx(loc) {
       ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x=>x.getAttribute('ref'))
       : [];
 
-    // 只抓第16列的原始合併：新版 Template 的資料列是 F:G、K:M。
+    // 只抓第18列的原始合併：新版 Template 的資料列是 F:G、K:M。
     const dataMerges=originalMerges.filter(ref=>{
       const nums=(ref.match(/\d+/g)||[]).map(Number);
       return nums.length && Math.min(...nums)===lastTemplateRow && Math.max(...nums)===lastTemplateRow;
@@ -1771,7 +1771,7 @@ async function buildManifestXlsx(loc) {
       }
     }
 
-    // 從最新 Template 第16列複製「列格式＋合併結構」。
+    // 從最新 Template 第18列複製「列格式＋合併結構」。
     // 公式不會被清掉：F 欄的公式會依新列號更新。
     const sourceRow=getRow(lastTemplateRow);
     for (let i=1;i<=extra;i++) {
@@ -1785,7 +1785,7 @@ async function buildManifestXlsx(loc) {
 
         const f=cell.getElementsByTagNameNS(NS,'f')[0];
         if (f) {
-          f.textContent=f.textContent.replace(/([A-Z]{1,3})16\b/g,(_,col)=>`${col}${nr}`);
+          f.textContent=f.textContent.replace(/([A-Z]{1,3})18\b/g,(_,col)=>`${col}${nr}`);
           // 讓預覽可看到公式結果；Excel 開啟後仍會重新計算。
           while (cell.getElementsByTagNameNS(NS,'v').length) {
             cell.removeChild(cell.getElementsByTagNameNS(NS,'v')[0]);
@@ -1905,8 +1905,8 @@ async function buildManifestXlsx(loc) {
   api.setValue(`D${totalRow}`,items[0]?items[0].unit:'PKG');
   api.setFormula(`I${totalRow}`,`=SUM(I${templateStart}:J${lastDataRow})`,totalWeight);
 
-  // 更新艙單的 Print Area。新版 Template 1 筆時是 A1:N19；每增加 1 筆，固定區往下推 1 列。
-  const newPrintEnd=19+Math.max(0,items.length-1);
+  // 更新艙單的 Print Area。新版 Template 是 A1:N21。
+  const newPrintEnd=21+extra;
   const definedNames=workbookXml.getElementsByTagNameNS(NS,'definedName');
   for (const dn of Array.from(definedNames)) {
     if (dn.getAttribute('name')==='_xlnm.Print_Area' && String(dn.textContent||'').includes('進口艙單印1份')) {
@@ -1918,8 +1918,8 @@ async function buildManifestXlsx(loc) {
   // ═══════════════════════════════════════════════════════════════════
   // 第一階段：只處理 T1 快遞貨物訊息
   // 其他工作表（准單、准單申請、貨櫃清單、運送單）完全不修改。
-  // T1 範本現在只提供第 3 列 1 筆資料；第 4 列起為固定內容。
-  // 超過 1 筆時，在固定區之前增加相同格式的資料列。
+  // T1 範本原本提供第 3~5 列共 3 筆資料；超過 3 筆時，
+  // 只在第 6 列固定區之前增加相同格式的資料列。
   // ═══════════════════════════════════════════════════════════════════
   async function loadSheetXmlByName(sheetName) {
     const target = getSheetTarget(sheetName);
@@ -1927,22 +1927,26 @@ async function buildManifestXlsx(loc) {
     return { target, xml, api: sheetApi(xml) };
   }
 
-  const t1 = await loadSheetXmlByName('T1快遞貨物訊息');
+  const t1 = await loadSheetXmlByName('T1快遞貨物訊息0638s');
   const t1Start = 3;
-  const t1TemplateCount = 1;
+  const t1TemplateCount = 3;
   const t1Extra = Math.max(0, items.length - t1TemplateCount);
 
-  // 最新 Template 的 T1 只有第 3 列 1 筆資料，且目前沒有設定列印範圍、也沒有第 4 列固定內容。
-  // 因此超過 1 筆時，只需把第 3 列的完整格式複製到第 4、5、6... 列，不能再要求「第 4 列固定內容」。
   if (t1Extra > 0) {
-    const sourceRow = t1.api.getRow(t1Start);
-    if (!sourceRow) throw new Error('T1 範本找不到第 3 列資料樣板');
-    const sheetDataEl = t1.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
-    if (!sheetDataEl) throw new Error('T1 範本找不到 sheetData');
+    const footerStart = 6;
+    if (!t1.api.getRow(footerStart)) throw new Error('T1 範本找不到第 6 列，無法增加資料列');
 
-    // 每增加 1 筆，直接接在上一筆後面：第2筆=4、第3筆=5……。
+    // 把原本第 6 列以後的固定內容往下移，保留原本的樣式與合併設定。
+    shiftRowsAndMerges(t1.xml, footerStart, t1Extra);
+    const footerAfter = t1.api.getRow(footerStart + t1Extra);
+    if (!footerAfter) throw new Error('T1 固定區移動失敗');
+
+    const sourceRow = t1.api.getRow(5);
+    if (!sourceRow) throw new Error('T1 範本找不到第 5 列資料樣板');
+    const sheetDataEl = t1.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
+
     for (let i = 0; i < t1Extra; i++) {
-      const newRow = t1Start + 1 + i;
+      const newRow = 6 + i;
       const clone = sourceRow.cloneNode(true);
       clone.setAttribute('r', String(newRow));
 
@@ -1954,20 +1958,18 @@ async function buildManifestXlsx(loc) {
 
         const f = cell.getElementsByTagNameNS(NS,'f')[0];
         if (f) {
-          // 第 3 列原本引用艙單第 16 列；第 4、5、6... 列依序引用艙單第 17、18、19... 列。
-          const manifestRow = 16 + (newRow - t1Start);
-          f.textContent = f.textContent.replace(/([A-Z]{1,3})16\b/g, (_, col) => `${col}${manifestRow}`);
+          // 第 5 列原本引用艙單第 18 列；新列依序引用 19、20……。
+          f.textContent = f.textContent.replace(/([A-Z]{1,3})18\b/g, (_, col) => `${col}${16 + (newRow - t1Start)}`);
           for (const v of Array.from(cell.getElementsByTagNameNS(NS,'v'))) cell.removeChild(v);
           const v = t1.xml.createElementNS(NS,'v');
           v.textContent = '';
           cell.appendChild(v);
         } else {
-          // 新資料列保留樣式，只清除第 3 列原本的固定資料內容。
           while (cell.firstChild) cell.removeChild(cell.firstChild);
           cell.removeAttribute('t');
         }
       }
-      sheetDataEl.appendChild(clone);
+      sheetDataEl.insertBefore(clone, footerAfter);
     }
   }
 
@@ -1985,7 +1987,7 @@ async function buildManifestXlsx(loc) {
     // E 欄原始 Template 是引用貨櫃清單；本階段不修改其資料來源，
     // 等第四階段處理貨櫃清單時再同步處理。
     const cargoRow = 9 + i * 2;
-    t1.api.setFormula(`E${r}`, `='貨櫃清單-1份'!J${cargoRow}`, '');
+    t1.api.setFormula(`E${r}`, `='貨櫃清單0638s-1份'!J${cargoRow}`, '');
 
     const consigneeDisplayName = [it.chineseName, it.consigneeName].filter(Boolean).join('\n');
     t1.api.setValue(`F${r}`, consigneeDisplayName);
@@ -1999,7 +2001,7 @@ async function buildManifestXlsx(loc) {
   // T1 原本的篩選範圍 A2:A4 也跟著資料筆數延伸。
   for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
     if (dn.getAttribute('name') === '_xlnm._FilterDatabase' && Number(dn.getAttribute('localSheetId')) === 2) {
-      dn.textContent = `T1快遞貨物訊息!$A$2:$A$${2 + items.length}`;
+      dn.textContent = `T1快遞貨物訊息0638s!$A$2:$A$${2 + items.length}`;
     }
   }
 
@@ -2007,31 +2009,31 @@ async function buildManifestXlsx(loc) {
   if (t1Dimension) {
     const old = t1Dimension.getAttribute('ref');
     const match = old && old.match(/^(.*:.*?)(\d+)$/);
-    if (match) t1Dimension.setAttribute('ref', `${match[1]}${Math.max(3, 3 + t1Extra)}`);
+    if (match) t1Dimension.setAttribute('ref', `${match[1]}${Math.max(17, 5 + t1Extra)}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════
   // 第二階段：只處理「准單(紅紙)-2份」
   // 依艙單筆數增加貨物資料列；公式完全沿用最新 Template 的寫法，
   // 只把公式中的艙單資料列號從 16/17/18 往後延伸。
-  // Template 現在資料列為第22列，第23列起為固定內容。
+  // Template 原本資料列為 22~24，25 列起為固定內容。
   // ═══════════════════════════════════════════════════════════════════
   const red = await loadSheetXmlByName('准單(紅紙)-2份');
   const redStart = 22;
-  const redTemplateCount = 1;
+  const redTemplateCount = 3;
   const redExtra = Math.max(0, items.length - redTemplateCount);
-  const redFooterStart = 23;
+  const redFooterStart = 25;
 
   if (redExtra > 0) {
-    if (!red.api.getRow(redFooterStart)) throw new Error('准單（紅紙）範本找不到第 23 列固定內容');
+    if (!red.api.getRow(redFooterStart)) throw new Error('准單（紅紙）範本找不到第 25 列固定內容');
 
-    // 將第23列以後固定內容整體往下移，包含原有合併儲存格。
+    // 將第25列以後固定內容整體往下移，包含原有合併儲存格。
     shiftRowsAndMerges(red.xml, redFooterStart, redExtra);
     const redFooterAfter = red.api.getRow(redFooterStart + redExtra);
     if (!redFooterAfter) throw new Error('准單（紅紙）固定內容移動失敗');
 
-    const sourceRow = red.api.getRow(22);
-    if (!sourceRow) throw new Error('准單（紅紙）範本找不到第 22 列資料樣板');
+    const sourceRow = red.api.getRow(24);
+    if (!sourceRow) throw new Error('准單（紅紙）範本找不到第 24 列資料樣板');
     const sheetDataEl = red.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
     if (!sheetDataEl) throw new Error('准單（紅紙）找不到 sheetData');
 
@@ -2041,11 +2043,11 @@ async function buildManifestXlsx(loc) {
       : [];
     const dataMerges = originalMerges.filter(ref => {
       const nums = (String(ref).match(/\d+/g) || []).map(Number);
-      return nums.length && Math.min(...nums) === 22 && Math.max(...nums) === 22;
+      return nums.length && Math.min(...nums) === 24 && Math.max(...nums) === 24;
     });
 
     for (let i = 0; i < redExtra; i++) {
-      const newRow = 23 + i;
+      const newRow = 25 + i;
       const clone = sourceRow.cloneNode(true);
       clone.setAttribute('r', String(newRow));
 
@@ -2057,10 +2059,10 @@ async function buildManifestXlsx(loc) {
 
         const f = cell.getElementsByTagNameNS(NS,'f')[0];
         if (f) {
-          // Template 第22列公式引用艙單第16列；第23列起依序引用17、18……。
+          // Template 第24列公式引用艙單第18列；第25列起依序引用19、20……。
           const manifestRow = 16 + (newRow - redStart);
           f.textContent = f.textContent.replace(
-            /進口艙單印1份!([A-Z]{1,3})16\b/g,
+            /進口艙單印1份!([A-Z]{1,3})18\b/g,
             (_, col) => `進口艙單印1份!${col}${manifestRow}`
           );
           // 讓 Excel 重新計算；避免保留舊的公式快取。
@@ -2112,9 +2114,9 @@ async function buildManifestXlsx(loc) {
   }
 
   // 紅紙列印範圍也跟著新增資料列往下延伸。
-  // Template 1 筆時為 A1:I29；每增加 1 筆，固定區往下 1 列。
+  // Template 3 筆時為 A1:I31；每增加 1 筆，固定區往下 1 列。
   // 因此 5 筆時為 A1:I33。
-  const redPrintEnd = 29 + Math.max(0, items.length - 1);
+  const redPrintEnd = 31 + redExtra;
   for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
     const name = dn.getAttribute('name');
     const localSheetId = dn.getAttribute('localSheetId');
@@ -2126,18 +2128,18 @@ async function buildManifestXlsx(loc) {
 
   // ═══════════════════════════════════════════════════════════════════
   // 第三階段：只處理「准單申請-1份 」
-  // 依艙單筆數增加資料列；資料列只有第22列 1 筆，
-  // 第23列起為固定內容。新增列完全沿用第22列的格式、公式與合併結構。
-  // 公式以最新 Template 為準，並只將來源的紅紙列號由22往後延伸。
+  // 依艙單筆數增加資料列；資料列 22~24 為 Template 原本的 3 筆，
+  // 第 25 列起為固定內容。新增列完全沿用第 24 列的格式、公式與合併結構。
+  // 公式以最新 Template 為準，並只將來源的紅紙列號由 22/23/24 往後延伸。
   // ═══════════════════════════════════════════════════════════════════
   const application = await loadSheetXmlByName('准單申請-1份 ');
   const appStart = 22;
-  const appTemplateCount = 1;
+  const appTemplateCount = 3;
   const appExtra = Math.max(0, items.length - appTemplateCount);
-  const appFooterStart = 23;
+  const appFooterStart = 25;
 
   if (!application.api.getRow(appFooterStart)) {
-    throw new Error('准單申請範本找不到第 23 列固定內容');
+    throw new Error('准單申請範本找不到第 25 列固定內容');
   }
 
   if (appExtra > 0) {
@@ -2145,8 +2147,8 @@ async function buildManifestXlsx(loc) {
     const appFooterAfter = application.api.getRow(appFooterStart + appExtra);
     if (!appFooterAfter) throw new Error('准單申請固定內容移動失敗');
 
-    const sourceRow = application.api.getRow(22);
-    if (!sourceRow) throw new Error('准單申請範本找不到第 22 列資料樣板');
+    const sourceRow = application.api.getRow(24);
+    if (!sourceRow) throw new Error('准單申請範本找不到第 24 列資料樣板');
     const sheetDataEl = application.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
     if (!sheetDataEl) throw new Error('准單申請找不到 sheetData');
 
@@ -2156,11 +2158,11 @@ async function buildManifestXlsx(loc) {
       : [];
     const dataMerges = originalMerges.filter(ref => {
       const nums = (String(ref).match(/\d+/g) || []).map(Number);
-      return nums.length && Math.min(...nums) === 22 && Math.max(...nums) === 22;
+      return nums.length && Math.min(...nums) === 24 && Math.max(...nums) === 24;
     });
 
     for (let i = 0; i < appExtra; i++) {
-      const newRow = 23 + i;
+      const newRow = 25 + i;
       const clone = sourceRow.cloneNode(true);
       clone.setAttribute('r', String(newRow));
 
@@ -2175,7 +2177,7 @@ async function buildManifestXlsx(loc) {
           // Template 第24列引用紅紙第24列；新增列依序引用紅紙第25、26……列。
           const redRow = 22 + (newRow - appStart);
           f.textContent = f.textContent.replace(
-            /'准單\(紅紙\)-2份'!([A-Z]{1,3})22\b/g,
+            /'准單\(紅紙\)-2份'!([A-Z]{1,3})24\b/g,
             (_, col) => `'准單(紅紙)-2份'!${col}${redRow}`
           );
           // 清除舊的公式快取，讓 Excel 重新計算。
@@ -2216,21 +2218,21 @@ async function buildManifestXlsx(loc) {
 
 
   // ═══════════════════════════════════════════════════════════════════
-  // 第四階段：只處理「貨櫃清單-1份」
+  // 第四階段：只處理「貨櫃清單0638s-1份」
   // Template 原本 3 筆，每筆佔 2 列：
   // 第1筆 9~10、第2筆 11~12、第3筆 13~14。
   // 第15列起為固定內容。超過3筆時，每增加1筆就增加2列，
   // 並完整沿用 Template 第13~14列的格式、合併儲存格與公式。
   // ═══════════════════════════════════════════════════════════════════
-  const cargo = await loadSheetXmlByName('貨櫃清單-1份');
+  const cargo = await loadSheetXmlByName('貨櫃清單0638s-1份');
   const cargoStart = 9;
-  const cargoTemplateCount = 1;
+  const cargoTemplateCount = 3;
   const cargoExtra = Math.max(0, items.length - cargoTemplateCount);
-  const cargoFooterStart = 11;
+  const cargoFooterStart = 15;
   const cargoRowsPerItem = 2;
 
   if (!cargo.api.getRow(cargoFooterStart)) {
-    throw new Error('貨櫃清單範本找不到第 11 列固定內容');
+    throw new Error('貨櫃清單範本找不到第 15 列固定內容');
   }
 
   if (cargoExtra > 0) {
@@ -2242,10 +2244,10 @@ async function buildManifestXlsx(loc) {
     const cargoFooterAfter = cargo.api.getRow(cargoFooterStart + cargoShift);
     if (!cargoFooterAfter) throw new Error('貨櫃清單固定內容移動失敗');
 
-    const sourceRow1 = cargo.api.getRow(9);
-    const sourceRow2 = cargo.api.getRow(10);
+    const sourceRow1 = cargo.api.getRow(13);
+    const sourceRow2 = cargo.api.getRow(14);
     if (!sourceRow1 || !sourceRow2) {
-      throw new Error('貨櫃清單範本找不到第 9、10 列資料樣板');
+      throw new Error('貨櫃清單範本找不到第 13、14 列資料樣板');
     }
 
     const sheetDataEl = cargo.xml.documentElement.getElementsByTagNameNS(NS,'sheetData')[0];
@@ -2256,15 +2258,15 @@ async function buildManifestXlsx(loc) {
       ? Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell')).map(x => x.getAttribute('ref'))
       : [];
 
-    // 第9~10列的所有合併，例如 A9:A10、B9:B10、...、J9:J10。
+    // 第13~14列的所有合併，例如 A13:A14、B13:B14、...、J13:J14。
     const dataMerges = originalMerges.filter(ref => {
       const nums = (String(ref).match(/\d+/g) || []).map(Number);
-      return nums.length && Math.min(...nums) >= 9 && Math.max(...nums) <= 10;
+      return nums.length && Math.min(...nums) >= 13 && Math.max(...nums) <= 14;
     });
 
     // 每增加一筆，複製一組 2 列。
     for (let i = 0; i < cargoExtra; i++) {
-      const newRow1 = 11 + i * 2;
+      const newRow1 = 15 + i * 2;
       const newRow2 = newRow1 + 1;
       const manifestRow = 16 + cargoTemplateCount + i;
 
@@ -2286,7 +2288,7 @@ async function buildManifestXlsx(loc) {
           const f = cell.getElementsByTagNameNS(NS,'f')[0];
           if (f) {
             f.textContent = f.textContent.replace(
-              /進口艙單印1份!([A-Z]{1,3})16\b/g,
+              /進口艙單印1份!([A-Z]{1,3})18\b/g,
               (_, col) => `進口艙單印1份!${col}${manifestRow}`
             );
 
@@ -2309,7 +2311,7 @@ async function buildManifestXlsx(loc) {
         for (const ref of dataMerges) {
           const shifted = ref.replace(
             /(\d+)/g,
-            m => String(Number(m) + (newRow1 - 9))
+            m => String(Number(m) + (newRow1 - 13))
           );
           const exists = Array.from(mergeCellsEl.getElementsByTagNameNS(NS,'mergeCell'))
             .some(mc => mc.getAttribute('ref') === shifted);
@@ -2356,13 +2358,13 @@ async function buildManifestXlsx(loc) {
     cargo.api.setValue(`J${r1}`, 'ESN500');
   }
 
-  // Template 1筆時為 A1:J15；每增加1筆貨櫃會增加2列。
-  const cargoPrintEnd = 15 + Math.max(0, items.length - 1) * cargoRowsPerItem;
+  // Template 3筆時為 A1:J19；每增加1筆貨櫃會增加2列。
+  const cargoPrintEnd = 19 + cargoExtra * cargoRowsPerItem;
   for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
     const name = dn.getAttribute('name');
     const text = String(dn.textContent || '');
-    if (name === '_xlnm.Print_Area' && text.includes('貨櫃清單-1份')) {
-      dn.textContent = `'貨櫃清單-1份'!$A$1:$J$${cargoPrintEnd}`;
+    if (name === '_xlnm.Print_Area' && text.includes('貨櫃清單0638s-1份')) {
+      dn.textContent = `'貨櫃清單0638s-1份'!$A$1:$J$${cargoPrintEnd}`;
     }
   }
 
@@ -2381,8 +2383,8 @@ async function buildManifestXlsx(loc) {
     appDimension.setAttribute('ref', old.replace(/(\d+)$/, m => String(Number(m) + appExtra)));
   }
 
-  // 准單申請 Template 1 筆時列印範圍為 A1:I33；每增加 1 筆，最後一列 +1。
-  const appPrintEnd = 33 + Math.max(0, items.length - 1);
+  // 准單申請 Template 3 筆時列印範圍為 A1:I35；每增加 1 筆，最後一列 +1。
+  const appPrintEnd = 35 + appExtra;
   for (const dn of Array.from(workbookXml.getElementsByTagNameNS(NS,'definedName'))) {
     const name = dn.getAttribute('name');
     const text = String(dn.textContent || '');
@@ -2394,13 +2396,14 @@ async function buildManifestXlsx(loc) {
 
   // ═══════════════════════════════════════════════════════════════════
   // 第五階段：運送單
-  // Template 現在只提供「運送第1筆」一張母版。
-  // 第1筆直接使用 Template；第2筆起複製「運送第1筆」建立新工作表。
+  // 每一筆資料各自一張工作表，完全沿用 Template 的命名：
+  // 「運送第1筆」、「運送第2筆」、「運送第3筆」……
+  // Template 已有前三張，因此只在 items.length > 3 時新增工作表。
   // 每張工作表固定列印 A1:N41。
   // ═══════════════════════════════════════════════════════════════════
-  const transportTemplateCount = 1;
+  const transportTemplateCount = 3;
   const transportExtra = Math.max(0, items.length - transportTemplateCount);
-  const transportSource = getWorksheetSheetInfo('運送第1筆');
+  const transportSource = getWorksheetSheetInfo('運送第3筆');
   const sheetsEl = workbookXml.getElementsByTagNameNS(NS, 'sheets')[0];
   if (!sheetsEl) throw new Error('workbook.xml 找不到 sheets');
 
@@ -2420,14 +2423,14 @@ async function buildManifestXlsx(loc) {
     ? parser.parseFromString(await ctFileTransport.async('text'), 'application/xml')
     : null;
 
-  // 以第1張 Template 運送單為母版；它本身是第1筆，所以公式基準是艙單第16列、貨櫃清單第9列。
+  // 以第3張 Template 運送單為母版；它本身是第3筆，所以公式基準是艙單第18列、貨櫃清單第13列。
   const sourceTransportXml = parser.parseFromString(
     await zip.file(transportSource.target).async('text'),
     'application/xml'
   );
 
   for (let i = 0; i < transportExtra; i++) {
-    const itemIndex = transportTemplateCount + i; // 0-based，第2筆開始
+    const itemIndex = transportTemplateCount + i; // 0-based，第4筆開始
     const sheetNumber = itemIndex + 1;
     const newName = `運送第${sheetNumber}筆`;
     const newSheetId = ++maxSheetId;
@@ -2445,8 +2448,8 @@ async function buildManifestXlsx(loc) {
     const root = newXml.documentElement;
 
     // 公式來源列：
-    // 第2筆 → 艙單17、貨櫃清單11
-    // 第3筆 → 艙單18、貨櫃清單13
+    // 第4筆 → 艙單19、貨櫃清單15
+    // 第5筆 → 艙單20、貨櫃清單17
     const manifestRow = 16 + itemIndex;
     const cargoRow = 9 + itemIndex * 2;
 
@@ -2455,9 +2458,9 @@ async function buildManifestXlsx(loc) {
       if (!f || f.textContent == null) continue;
 
       let formula = f.textContent;
-      // 母版「運送第1筆」對應艙單第16列、貨櫃清單第9列。
-      formula = formula.replace(/(進口艙單印1份![A-Z]{1,3})16\b/g, `$1${manifestRow}`);
-      formula = formula.replace(/('貨櫃清單-1份'![A-Z]{1,3})9\b/g, `$1${cargoRow}`);
+      // 母版「運送第3筆」對應艙單第18列、貨櫃清單第13列。
+      formula = formula.replace(/(進口艙單印1份![A-Z]{1,3})18\b/g, `$1${manifestRow}`);
+      formula = formula.replace(/('貨櫃清單0638s-1份'![A-Z]{1,3})13\b/g, `$1${cargoRow}`);
 
       f.textContent = formula;
 
@@ -2477,7 +2480,7 @@ async function buildManifestXlsx(loc) {
     // 寫入新的 worksheet XML。
     zip.file(newTarget, serializer.serializeToString(newXml));
 
-    // 複製 Template 第1張運送單的 worksheet relationship。
+    // 複製 Template 第3張運送單的 worksheet relationship。
     const sourceRelPath = `xl/worksheets/_rels/${transportSource.target.split('/').pop()}.rels`;
     const newRelPath = `xl/worksheets/_rels/sheet${newSheetId}.xml.rels`;
     const sourceRelFile = zip.file(sourceRelPath);
