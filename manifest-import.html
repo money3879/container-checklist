@@ -2101,6 +2101,10 @@ async function buildManifestXlsx(loc) {
   const redShip2Name = (manifestByLocation[loc] && manifestByLocation[loc].ship2Name) || '';
   red.api.setValue('C6', redShip2Name);
 
+  // 紅紙 C10:D13：Template 為合併儲存格，實際資料寫入左上角 C10。
+  // 本次作業應帶入目前網站上選擇／輸入的卸存地。
+  red.api.setValue('C10', loc);
+
   // 逐筆確認准單（紅紙）22列起的公式，完全按照 Template 原本公式模式，
   // 只將艙單來源列號由16、17、18依筆數延伸。
   for (let i = 0; i < items.length; i++) {
