@@ -2105,6 +2105,34 @@ async function buildManifestXlsx(loc) {
   // 本次作業應帶入目前網站上選擇／輸入的卸存地。
   red.api.setValue('C10', loc);
 
+  // 紅紙 G19:I19（Template 的實際合併範圍；使用左上角 G19）：
+  // 依網站目前選擇／輸入的卸存地，更新「10.其他」的轉運說明。
+  // T6（003C2002、003C2031）不加括號，直接帶入卸存地。
+  const redOtherText = (() => {
+    const normalizedLoc = normalizeLocationCode(loc);
+    const transferPortMap = {
+      'KHH0638S': '轉運至高雄港',
+      'KHH0641S': '轉運至高雄港',
+      'TPEE011S': '轉運至台北港',
+      'TPEE021S': '轉運至台北港',
+      'TPEN051S': '轉運至台北港',
+      'TXG018DH': '轉運至台中港'
+    };
+
+    if (['003C2002', '003C2031'].includes(normalizedLoc)) {
+      return `10.其他:過境台北港辦理儀檢後運往${normalizedLoc}`;
+    }
+
+    const transferPort = transferPortMap[normalizedLoc];
+    if (transferPort) {
+      return `10.其他:${transferPort}(${normalizedLoc} )`;
+    }
+
+    // 未列入對照表的卸存地先維持 Template 原本內容，避免影響既有功能。
+    return '';
+  })();
+  if (redOtherText) red.api.setValue('G19', redOtherText);
+
   // 逐筆確認准單（紅紙）22列起的公式，完全按照 Template 原本公式模式，
   // 只將艙單來源列號由16、17、18依筆數延伸。
   for (let i = 0; i < items.length; i++) {
