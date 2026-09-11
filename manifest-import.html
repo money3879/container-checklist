@@ -673,6 +673,9 @@ function normalizeLocationCode(value) {
 function normalizeConsigneeName(value) {
   let s = String(value || '').toUpperCase().trim();
   s = s.replace(/[’‘′＇]/g, "'");
+  // 與台灣通知人相同：LINITED / LIMITED 視為同一家公司名稱，
+  // 用於處理大陸文件的 LIMITED 與資料庫既有 LINITED 拼法差異。
+  s = s.replace(/LI[MN]ITED/g, 'LIMITED');
   // 收貨人名稱比對忽略標點、空白、連字號與常見公司法律後綴寫法。
   s = s.replace(/[.,，。、;；:：'"`]/g, '');
   s = s.replace(/[()（）\[\]{}]/g, '');
