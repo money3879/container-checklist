@@ -1184,14 +1184,17 @@ function generatePreview() {
     const mappedType = mapContainerTypeForManifest(containerType);
 
     const cargoDesc = `EXPRESS PACKAGE  ${intlCode}/${mappedType}/2/${sealNumRaw}`;
-    const consigneeInfo = `收貨人:${consigneeName}\n${match.address || ''}`;
+    // 艙單收貨人顯示以實際命中的 Supabase DB 名稱為準；
+    // 文件上的 LIMITED / DB 的 LINITED 等差異只影響比對，不覆蓋 DB 正式名稱。
+    const dbConsigneeName = match.name || consigneeName;
+    const consigneeInfo = `收貨人:${dbConsigneeName}\n${match.address || ''}`;
     const unit = match.unit || 'PKG';
 
     manifestByLocation[rowLocation].items.push({
       billNo, sealNo, pieces, unit,
       trackNo: intlCode, cargoDesc, weight,
       consigneeName,
-      // 艙單 O 欄顯示資料庫實際收貨人名稱；比對時仍保留 Excel 原始收貨人名稱。
+      // 艙單顯示用的正式收貨人名稱；比對時仍保留 Excel 原始收貨人名稱。
       matchedDbConsigneeName: match.name || '',
       consigneeShort: match.short_name || '', consigneeInfo,
       chineseName: match.chinese_name || '', contactInfo: match.contact_info || '',
