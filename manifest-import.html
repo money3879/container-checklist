@@ -1190,7 +1190,10 @@ function generatePreview() {
     manifestByLocation[rowLocation].items.push({
       billNo, sealNo, pieces, unit,
       trackNo: intlCode, cargoDesc, weight,
-      consigneeName, consigneeShort: match.short_name || '', consigneeInfo,
+      consigneeName,
+      // 艙單 O 欄顯示資料庫實際收貨人名稱；比對時仍保留 Excel 原始收貨人名稱。
+      matchedDbConsigneeName: match.name || '',
+      consigneeShort: match.short_name || '', consigneeInfo,
       chineseName: match.chinese_name || '', contactInfo: match.contact_info || '',
       taxId: match.tax_id || '',
       shortName: match.short_name || '',
@@ -1873,7 +1876,9 @@ async function buildManifestXlsx(loc) {
     // N=(1)、O=收貨人名稱(英文)、P=封條、Q=台灣通知人、
     // R=統一編號、S=收貨人中文簡稱、T=EXPRESS PACKAGE、U=櫃型、V=2。
     api.setValue(`N${row}`,it.remark || '(1)');
-    api.setValue(`O${row}`,it.consigneeName || '');
+    // O 欄顯示 Supabase 實際收貨人名稱，避免文件中的 LIMITED 拼法
+    // 蓋掉資料庫既有的正確 LINITED 名稱；比對邏輯本身不變。
+    api.setValue(`O${row}`, it.matchedDbConsigneeName || it.consigneeName || '');
     api.setValue(`P${row}`,it.sealNumRaw || '');
 
     // Q 欄規則：先完成「收貨人＋卸存地」的 DB 匹配，並依既有規則
