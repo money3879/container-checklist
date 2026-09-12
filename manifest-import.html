@@ -419,6 +419,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 let ships = [];
 let consignees = [];
+let locations = [];
 let uploadedRows = null;
 let nColumnTestRows = [];
 let manifestByLocation = {};
@@ -452,16 +453,21 @@ function mapContainerTypeForManifest(rawType) {
 
 async function init() {
   try {
-    const [shipsRes, consigneesRes] = await Promise.all([
+    const [shipsRes, consigneesRes, locationsRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/ships?select=*&order=ship_name.asc`, {
         headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
       }),
       fetch(`${SB_URL}/rest/v1/consignees?select=*`, {
         headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+      }),
+      fetch(`${SB_URL}/rest/v1/locations?select=location_code,location_display_name&order=location_code.asc`, {
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
       })
     ]);
     ships = await shipsRes.json();
     consignees = await consigneesRes.json();
+    locations = await locationsRes.json();
+    if (!Array.isArray(locations)) throw new Error('卸存地主檔載入失敗');
 
     const sel = document.getElementById('f-ship-select');
     ships.filter(s => (s.ship_type || '一程船') === '一程船').forEach(s => {
@@ -499,11 +505,22 @@ function addLocationInput(value) {
   wrap.className = 'loc-card';
   wrap.id = `wrap-${id}`;
 
+  const locationSelect = document.createElement('select');
+  locationSelect.id = id;
+  locationSelect.innerHTML = '<option value="">請選擇卸存地</option>';
+  locations.forEach(loc => {
+    const opt = document.createElement('option');
+    opt.value = loc.location_code;
+    opt.textContent = loc.location_code;
+    locationSelect.appendChild(opt);
+  });
+  if (value) locationSelect.value = normalizeLocationCode(value);
+
   wrap.innerHTML = `
     <div class="loc-card-row">
       <div class="loc-card-field">
         <label>卸存地</label>
-        <input type="text" id="${id}" placeholder="例如 KHH0638S" style="text-transform:uppercase" value="${value||''}">
+        <div id="${id}-select-wrap"></div>
       </div>
       <div class="loc-card-field">
         <label>二程船（回台灣）</label>
@@ -513,6 +530,7 @@ function addLocationInput(value) {
     </div>
   `;
   document.getElementById('loc-list').appendChild(wrap);
+  document.getElementById(`${id}-select-wrap`).appendChild(locationSelect);
 }
 function removeLocationInput(id) {
   const wrap = document.getElementById(`wrap-${id}`);
@@ -521,10 +539,13 @@ function removeLocationInput(id) {
 function getLocationInputs() {
   const wraps = Array.from(document.querySelectorAll('.loc-card'));
   return wraps.map(wrap => {
-    const locInput = wrap.querySelector('input[id]:not([id$="-ship2"])');
+    const locInput = wrap.querySelector('select[id]');
     const ship2Input = wrap.querySelector('input[id$="-ship2"]');
+    const location = normalizeLocationCode(locInput ? locInput.value : '');
+    const locationMaster = locations.find(x => normalizeLocationCode(x.location_code) === location);
     return {
-      location: normalizeLocationCode(locInput.value),
+      location,
+      locationDisplayName: locationMaster ? String(locationMaster.location_display_name || '').trim() : '',
       ship2Name: ship2Input.value.trim()
     };
   }).filter(x => x.location);
@@ -1063,7 +1084,7 @@ function generatePreview() {
 
   const locationCodes = locationList.map(l => normalizeLocationCode(l.location));
   locationList.forEach(l => {
-    manifestByLocation[l.location] = { items: [], ship2Name: l.ship2Name };
+    manifestByLocation[l.location] = { items: [], ship2Name: l.ship2Name, locationDisplayName: l.locationDisplayName };
   });
 
   const sealCounter = {}; // key: `${consigneeName}|${location}`
@@ -1503,6 +1524,7 @@ async function buildManifestXlsx(loc) {
   if (typeof JSZip === 'undefined') throw new Error('Excel 元件載入失敗，請重新整理頁面');
   const meta = window._manifestMeta;
   const items = manifestByLocation[loc].items;
+  const locationDisplayName = manifestByLocation[loc].locationDisplayName || loc;
 
   const response = await fetch(TEMPLATE_PATH, { cache: 'no-store' });
   if (!response.ok) throw new Error(`找不到 Excel 範本：${TEMPLATE_PATH}（HTTP ${response.status}）`);
@@ -2274,6 +2296,9 @@ async function buildManifestXlsx(loc) {
   // 並完整沿用 Template 第13~14列的格式、合併儲存格與公式。
   // ═══════════════════════════════════════════════════════════════════
   const cargo = await loadSheetXmlByName('貨櫃清單-1份');
+  // 卸存地主檔：依網站選擇的卸存地代碼，將完整顯示名稱寫入貨櫃清單 C4:D4。
+  cargo.api.setValue('C4', locationDisplayName);
+
   const cargoStart = 9;
   const cargoTemplateCount = 1;
   const cargoExtra = Math.max(0, items.length - cargoTemplateCount);
