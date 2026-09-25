@@ -62,6 +62,7 @@ main { padding:16px; padding-bottom:90px }
 }
 .cc-name { font-size:.95rem; font-weight:800; color:var(--txt); word-break:break-word }
 .cc-address { font-size:.72rem; color:#888888; line-height:1.5; white-space:pre-wrap; word-break:break-word; margin-top:4px }
+.cc-header-actions { display:flex; align-items:center; gap:5px; flex-shrink:0 }
 .cc-header-btn {
   border:1px solid rgba(0,0,0,.15); border-radius:6px; padding:5px 9px;
   font-size:.68rem; font-weight:700; cursor:pointer; font-family:inherit;
@@ -96,8 +97,9 @@ main { padding:16px; padding-bottom:90px }
 /* ── LOCATION GROUP ── */
 .location-title {
   display:flex; align-items:center; justify-content:space-between; gap:10px;
-  margin-bottom:10px;
+  margin-bottom:10px; cursor:pointer; user-select:none;
 }
+.location-title:active { opacity:.75 }
 .location-title-main { font-size:1rem; font-weight:900; color:#1a5a8a; }
 .location-count { font-size:.68rem; color:#777; white-space:nowrap; }
 .consignee-mini { font-size:.9rem; font-weight:800; color:#111; }
@@ -468,6 +470,7 @@ let grouped = [];        // 依 name 分組後的結構 [{name, address, locatio
 let pendingDelete = null; // {type:'location'|'consignee', id, name}
 let editingLocId = null;
 let editingLocName = null;
+let expandedLocations = new Set(); // 記錄「依卸存地分類」目前展開的卸存地
 
 
 // 艙號排序：同時支援純數字（7101）與英文字母＋數字（JW01、PP01）。
@@ -550,24 +553,30 @@ function render() {
               ${r.contact_info?`<span>聯絡人：<b>${escapeHtml(r.contact_info).replace(/\n/g,' / ')}</b></span>`:''}
             </div>
           </div>
-          <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
+          <div class="cc-header-actions">
+            <button class="cc-header-btn" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
+            <button class="cc-header-btn" onclick="openAddLocation('${escapeAttr(r.name)}')">新增卸存地</button>
+          </div>
         </div>
         ${rows.map(x=>`<div class="loc-row"><div class="loc-info">
           <div><span class="seal-badge">艙號 ${escapeHtml(String(x.seal_start))}</span> ・ 卸存地：<b>${escapeHtml(x.location)}</b> ・ 單位：<b>${escapeHtml(x.unit)}</b></div>
         </div><div class="loc-actions">
-          <button class="loc-btn loc-btn-edit" onclick="openEditLocation('${x.id}','${escapeAttr(x.name)}')">編輯</button>
+          <button class="loc-btn loc-btn-edit" onclick="openEditLocation('${x.id}','${escapeAttr(x.name)}','${escapeAttr(x.location)}')">修改艙號</button>
           <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${x.id}','${escapeAttr(x.name)}','${escapeAttr(x.location)}')">刪除</button>
         </div></div>`).join('')}
       </div>`;
     }).join('');
     return;
   }
-  listEl.innerHTML=grouped.map(g=>`<div class="location-card">
-    <div class="location-title">
-      <div class="location-title-main">📍 ${escapeHtml(g.location)}</div>
+  // 依卸存地分類：預設全部收起；點擊卸存地標題後才展開。
+  listEl.innerHTML=grouped.map(g=>{
+    const expanded = expandedLocations.has(g.location);
+    return `<div class="location-card">
+    <div class="location-title" onclick="toggleLocation('${escapeAttr(g.location)}')">
+      <div class="location-title-main">${expanded?'▼':'▶'} 📍 ${escapeHtml(g.location)}</div>
       <div class="location-count">${g.rows.length} 家收貨人</div>
     </div>
-    ${g.rows.map(r=>`<div class="loc-row"><div class="loc-info">
+    ${expanded ? g.rows.map(r=>`<div class="loc-row"><div class="loc-info">
       <div class="consignee-mini">${escapeHtml(r.chineseName||r.name)}</div>
       <div class="consignee-en">英文名稱：${escapeHtml(r.name)}</div>
       ${r.taiwanNotifyName?`<div class="consignee-en">台灣通知人：${escapeHtml(r.taiwanNotifyName)}</div>`:''}
@@ -579,9 +588,17 @@ function render() {
       </div>
     </div><div class="loc-actions">
       <button class="loc-btn loc-btn-edit" onclick="openEditConsignee('${escapeAttr(r.name)}')">編輯</button>
+      <button class="loc-btn loc-btn-edit" onclick="openEditLocation('${r.id}','${escapeAttr(r.name)}','${escapeAttr(g.location)}')">修改艙號</button>
       <button class="loc-btn loc-btn-del" onclick="askDeleteLocation('${r.id}','${escapeAttr(r.name)}','${escapeAttr(g.location)}')">刪除</button>
-    </div></div>`).join('')}
-  </div>`).join('');
+    </div></div>`).join('') : ''}
+  </div>`;
+  }).join('');
+}
+
+function toggleLocation(location) {
+  if (expandedLocations.has(location)) expandedLocations.delete(location);
+  else expandedLocations.add(location);
+  render();
 }
 
 function escapeHtml(s) {
@@ -736,14 +753,20 @@ function openAddLocation(name) {
   document.getElementById('dlg-loc').classList.add('show');
 }
 
-function openEditLocation(id, name) {
-  const g = grouped.find(x => x.rows.some(x => x.id === id));
-  const loc = g ? g.rows.find(x => x.id === id) : null;
+function openEditLocation(id, name, location) {
+  const row = rawRows.find(x => String(x.id) === String(id));
+  const loc = row ? {
+    ...row,
+    location: String(row.location || location || '').trim().toUpperCase(),
+    seal_start: String(row.seal_start || '').trim(),
+    taiwan_notify_name: row.taiwan_notify_name || '',
+    unit: row.unit || 'PKG'
+  } : null;
   if (!loc) return;
   editingLocId = id;
   editingLocName = name;
   document.getElementById('loc-title').textContent = `編輯卸存地 — ${name}`;
-  document.getElementById('loc-location').value = loc.location;
+  document.getElementById('loc-location').value = loc.location || location || '';
   document.getElementById('loc-seal').value = loc.seal_start;
   document.getElementById('loc-taiwan-notify').value = loc.taiwan_notify_name || loc.name || '';
   document.getElementById('loc-unit').value = loc.unit || 'PKG';
@@ -778,7 +801,9 @@ async function submitLocation() {
       });
       if (!res.ok) throw new Error(await res.text());
     } else {
-      const g = grouped.find(x => x.name === editingLocName);
+      const sourceRows = rawRows.filter(x => x.name === editingLocName);
+      const base = sourceRows[0];
+      if (!base) throw new Error('找不到原收貨人資料');
       const res = await fetch(`${SB_URL}/rest/v1/consignees`, {
         method: 'POST',
         headers: {
@@ -786,9 +811,9 @@ async function submitLocation() {
           'Content-Type': 'application/json', 'Prefer': 'return=minimal'
         },
         body: JSON.stringify({
-          name: g.name, chinese_name: g.rows[0]?.chineseName || '', address: g.rows[0]?.address || '',
-          tax_id: g.rows[0]?.taxId || '', contact_info: g.rows[0]?.contactInfo || '',
-          short_name: g.rows[0]?.shortName || '', taiwan_notify_name: taiwanNotifyName, location, seal_start: seal, unit
+          name: base.name || '', chinese_name: base.chinese_name || '', address: base.address || '',
+          tax_id: base.tax_id || '', contact_info: base.contact_info || '',
+          short_name: base.short_name || '', taiwan_notify_name: taiwanNotifyName, location, seal_start: seal, unit
         })
       });
       if (!res.ok) {
