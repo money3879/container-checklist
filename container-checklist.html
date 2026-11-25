@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script>
+(function () {
+  // Android 手機介面標記：同時檢查 UA 與行動裝置平台，避免部分 Android WebView 未套用樣式。
+  var ua = navigator.userAgent || '';
+  var platform = navigator.platform || '';
+  var isAndroid = /Android/i.test(ua) || (/Linux/i.test(platform) && navigator.maxTouchPoints > 0 && /Mobile/i.test(ua));
+  var isIOS = /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isAndroid) document.documentElement.classList.add('is-android');
+  if (isIOS && !isAndroid) document.documentElement.classList.add('is-ios');
+})();
+</script>
 <title>貨櫃對單系統</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -229,6 +240,79 @@ tbody tr.done .c-seal-val { color:#111111 !important }
 
 mark { background:#ffe066; color:#7a4400; border-radius:2px }
 input[type="file"] { display:none }
+
+/* 所有裝置共用：航次資訊列縮小字體與上下間距 */
+.voyage-row { padding-top:2px !important; padding-bottom:2px !important; min-height:0 }
+.voyage-row .bar-voyage { font-size:.70rem; line-height:1.2; letter-spacing:0; padding:0; min-height:0 }
+
+/* 僅 iPhone／iPad：適度增加每筆貨櫃資料列高度；不影響 Android 與電腦 */
+html.is-ios .table-wrap table tbody tr > td {
+  box-sizing:border-box !important;
+  padding-top:14px !important;
+  padding-bottom:14px !important;
+}
+
+/* 僅 Android 手機：明確鎖定五欄寬度、文字縮放及資料列高度 */
+html.is-android, html.is-android body {
+  -webkit-text-size-adjust: none !important;
+  text-size-adjust: none !important;
+}
+html.is-android .bar:first-child { gap:4px; padding:5px 6px }
+html.is-android .bar:first-child .app-title { font-size:.78rem; letter-spacing:1px; min-width:0 }
+html.is-android .bar:first-child .tbtn { padding:7px 9px; font-size:.78rem; border-radius:5px }
+html.is-android .bar:first-child .tbtn-import { padding-left:9px; padding-right:9px }
+
+/* Android 五欄指定比例：國際櫃號31%／海關封條31%／大陸封條19%／卸存地12%／尺寸7% */
+html.is-android .table-wrap { width:100%; overflow-x:hidden }
+html.is-android .table-wrap table {
+  width:100% !important; min-width:0 !important; table-layout:fixed !important;
+}
+html.is-android .table-wrap table col.c-cno  { width:31% !important }
+html.is-android .table-wrap table col.c-esn  { width:31% !important }
+html.is-android .table-wrap table col.c-seal { width:19% !important }
+html.is-android .table-wrap table col.c-loc  { width:12% !important }
+html.is-android .table-wrap table col.c-size { width:7% !important }
+html.is-android .table-wrap table thead th { padding:6px 2px !important; font-size:.62rem !important; line-height:1.1 !important; letter-spacing:0 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important; overflow-wrap:anywhere !important }
+html.is-android .table-wrap table thead th:first-child { padding-left:5px !important }
+/* 用較大的上下 padding 明確增加每筆資料列高度 */
+html.is-android .table-wrap table tbody tr > td {
+  box-sizing:border-box !important; padding-top:22px !important; padding-bottom:22px !important;
+  padding-left:3px !important; padding-right:3px !important;
+  vertical-align:middle !important;
+}
+html.is-android .table-wrap table tbody td { font-size:.78rem !important; overflow:visible !important; }
+html.is-android .table-wrap table tbody td:first-child { padding-left:5px !important }
+html.is-android .table-wrap table tbody td .c-cno-val {
+  font-size:1rem !important; line-height:1.2 !important; display:block !important;
+  white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+  overflow-wrap:normal !important; word-break:keep-all !important;
+}
+html.is-android .table-wrap table tbody td .c-esn1,
+html.is-android .table-wrap table tbody td .c-esn2 {
+  font-size:1rem !important; line-height:1.2 !important; display:block !important; width:100% !important;
+  white-space:normal !important; overflow:visible !important; overflow-wrap:anywhere !important; word-break:break-word !important;
+}
+html.is-android .table-wrap table tbody td .c-seal-val {
+  font-size:.8rem !important; line-height:1.2 !important; display:block !important;
+  white-space:normal !important; overflow:visible !important; overflow-wrap:anywhere !important; word-break:break-word !important;
+}
+/* Android 卸存地欄：10% 欄寬，字體 0.5rem */
+html.is-android .table-wrap table tbody td .c-loc-val,
+html.is-android .table-wrap table tbody td .c-loc-rep {
+  font-size:.5rem !important; line-height:1.05 !important; display:block !important;
+  white-space:normal !important; overflow:hidden !important; overflow-wrap:anywhere !important;
+  word-break:break-all !important; max-width:100% !important;
+}
+html.is-android .table-wrap table tbody td .sizetag {
+  font-size:.3rem !important; line-height:1.1 !important; display:inline-block !important;
+  white-space:normal !important; overflow-wrap:anywhere !important; padding:1px 2px !important;
+}
+@media (max-width: 380px) {
+  html.is-android .bar:first-child { gap:3px; padding-left:4px; padding-right:4px }
+  html.is-android .bar:first-child .tbtn { padding:6px 7px; font-size:.74rem }
+  html.is-android .bar:first-child .app-title { font-size:.72rem; letter-spacing:0 }
+  html.is-android thead th { font-size:.65rem; padding-left:5px; padding-right:5px }
+}
 </style>
 </head>
 <body>
@@ -240,21 +324,20 @@ input[type="file"] { display:none }
     <span class="app-title">對單系統</span>
     <button class="tbtn tbtn-import" onclick="openImport()">📥 匯入</button>
     <button class="tbtn" onclick="location.href='container-history.html'" style="color:#6a4fb0;border-color:rgba(106,79,176,.3)">📋 歷史</button>
-    <button class="tbtn" onclick="location.href='console.html'" style="color:#555555;border-color:rgba(0,0,0,.2)">🏠 回到首頁</button>
+    <button class="tbtn" id="home-btn" onclick="returnHome()" style="color:#555555;border-color:rgba(0,0,0,.2)">🏠 回到首頁</button>
   </div>
 
   <!-- row 2: voyage -->
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 12px 5px;border-bottom:1px solid rgba(0,0,0,.10)">
+  <div class="voyage-row" style="display:flex;align-items:center;justify-content:space-between;padding:4px 12px 5px;border-bottom:1px solid rgba(0,0,0,.10)">
     <span class="bar-voyage" id="bar-voyage" style="margin:0;padding:0;border:none;min-height:auto">尚未匯入航次資訊</span>
     <span id="sync-status" style="font-size:.68rem;font-weight:600;white-space:nowrap"></span>
   </div>
 
-  <!-- row 3: stats -->
+  <!-- row 3: 已對／剩餘／總計；右側狀態文字保留原設定 -->
   <div class="bar-stats">
     <div class="stat stat-done"><b id="s-done">0</b> 已對</div>
+    <div class="stat stat-remaining"><b id="s-remaining">0</b> 剩餘</div>
     <div class="stat"><b id="s-total">0</b> 總計</div>
-    <div class="prog-wrap"><div class="prog-bar" id="prog-bar" style="width:0%"></div></div>
-    <div class="pct" id="pct">0%</div>
     <div id="sync-status2" style="margin-left:auto;font-size:.72rem;font-weight:700;color:#999999;white-space:nowrap">尚未同步</div>
   </div>
 
@@ -382,29 +465,38 @@ input[type="file"] { display:none }
 
 <div class="toast" id="toast"></div>
 
+<script src="./auth.js"></script>
+<script src="./pwa-client.js" defer></script>
 <script>
-/* ══════════════════════════════
-   登入保護：未登入導回 index.html
-══════════════════════════════ */
-let _authOk = true;
-(function checkAuth() {
-  const saved = localStorage.getItem('ctr-auth') || sessionStorage.getItem('ctr-auth');
-  if (!saved) {
-    _authOk = false;
-    window.location.replace('index.html');
-    return;
-  }
-  try {
-    const auth = JSON.parse(saved);
-    if (!auth || !auth.username) throw new Error('invalid');
-    window._currentUser = auth.username;
-  } catch(e) {
-    _authOk = false;
-    localStorage.removeItem('ctr-auth');
-    sessionStorage.removeItem('ctr-auth');
+/* 權限檢查：外場登入後才可使用 */
+const _authSession = CTRAuth.requireRoles(['office', 'field'], 'index.html');
+
+// 防止登出後按瀏覽器上一頁，從 BFCache 還原已登入時的舊畫面。
+// 還原頁面或歷史紀錄切換時，若登入狀態已清除，立即回到統一登入頁。
+function guardChecklistPageOnHistoryRestore() {
+  const current = CTRAuth.readSession();
+  if (!current || !current.access_token || !current.userId || !['office', 'field'].includes(current.role)) {
     window.location.replace('index.html');
   }
-})();
+}
+window.addEventListener('pageshow', guardChecklistPageOnHistoryRestore);
+window.addEventListener('popstate', guardChecklistPageOnHistoryRestore);
+
+function returnHome() {
+  const session = CTRAuth.readSession();
+  if (session?.role === 'office') {
+    window.location.replace('console.html');
+  } else {
+    // 外場的首頁是外場登入入口；先登出，避免跳轉到內場頁面造成畫面閃現。
+    CTRAuth.logout('index.html');
+  }
+}
+
+if (_authSession?.role === 'field') {
+  const homeButton = document.getElementById('home-btn');
+  if (homeButton) homeButton.textContent = '🚪 登出／回登入頁';
+}
+let _authOk = !!_authSession;
 
 /* ══════════════════════════════
    SUPABASE CONFIG（供修改密碼使用）
@@ -455,6 +547,7 @@ const SAMPLE = [
    INIT
 ══════════════════════════════ */
 window.addEventListener('DOMContentLoaded', () => {
+  if (/Android/i.test(navigator.userAgent || '')) document.documentElement.classList.add('is-android');
   if (!_authOk) return;
   try {
     const s = localStorage.getItem('ctr4-rows');
@@ -704,12 +797,30 @@ function render() {
     return [r.cno, r.esn, r.esn2, r.seal, r.loc, r.seq].some(v => (v||'').toUpperCase().includes(q));
   });
 
-  /* highlight helper */
-  function hl(t) {
-    if (!q || !t) return t || '';
-    return t.replace(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'), '<mark>$1</mark>');
+  /* 安全文字顯示與搜尋標示：資料內容一律建立文字節點，不解析成 HTML */
+  function appendHighlightedText(parent, value, keyword) {
+    const text = String(value ?? '');
+    if (!keyword) {
+      parent.appendChild(document.createTextNode(text));
+      return;
+    }
+    const upperText = text.toUpperCase();
+    let cursor = 0;
+    let matchAt = upperText.indexOf(keyword, cursor);
+    while (matchAt !== -1) {
+      if (matchAt > cursor) {
+        parent.appendChild(document.createTextNode(text.slice(cursor, matchAt)));
+      }
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(matchAt, matchAt + keyword.length);
+      parent.appendChild(mark);
+      cursor = matchAt + keyword.length;
+      matchAt = upperText.indexOf(keyword, cursor);
+    }
+    if (cursor < text.length) {
+      parent.appendChild(document.createTextNode(text.slice(cursor)));
+    }
   }
-
   /* ── 後四碼重複偵測 ── */
   const tail4 = {};
   rows.forEach(r => { const t = (r.cno||'').slice(-4); if(t) tail4[t] = (tail4[t]||0)+1; });
@@ -723,32 +834,70 @@ function render() {
     else if (!seqKey) { isFirstSeq[r.id] = true; prevSeq = ' '; }
   });
 
-  tbody.innerHTML = vis.map(r => {
-    const isDup = tail4[(r.cno||'').slice(-4)] > 1;
-    const cnoHtml = r.cno
-      ? `<span class="c-cno-val">${hl(r.cno)}</span>`
-      : '';
-    const seqCellClass  = r.marked ? 'td-marked' : '';
-    const cnoCellClass  = (r.marked ? 'td-marked ' : '') + (isDup ? 'td-dup-cno' : '');
-    return `<tr id="r${r.id}" class="${r.done?'done':''}" onclick="askToggle(${r.id})">
-      <td class="${cnoCellClass}">${cnoHtml}</td>
-      <td>${r.esn2
-        ? `<span class="c-esn1">${hl(r.esn||'—')}</span><span class="c-esn2">${hl(r.esn2)}</span>`
-        : `<span class="c-esn1">${hl(r.esn||'—')}</span>`
-      }</td>
-      <td class="td-seal"><span class="c-seal-val">${hl(r.seal||'—')}</span></td>
-      <td><span class="c-loc-val">${hl(r.loc||'—')}</span></td>
-      <td>${r.size ? `<span class="sizetag">${r.size}</span>` : ''}</td>
-    </tr>`;
-  }).join('');
+  tbody.replaceChildren();
+  vis.forEach(r => {
+    const isDup = tail4[(r.cno || '').slice(-4)] > 1;
+    const tr = document.createElement('tr');
+    tr.id = `r${r.id}`;
+    if (r.done) tr.classList.add('done');
+    tr.addEventListener('click', () => askToggle(r.id));
+
+    const cnoCell = document.createElement('td');
+    if (r.marked) cnoCell.classList.add('td-marked');
+    if (isDup) cnoCell.classList.add('td-dup-cno');
+    if (r.cno) {
+      const cnoSpan = document.createElement('span');
+      cnoSpan.className = 'c-cno-val';
+      appendHighlightedText(cnoSpan, r.cno, q);
+      cnoCell.appendChild(cnoSpan);
+    }
+    tr.appendChild(cnoCell);
+
+    const esnCell = document.createElement('td');
+    const esnSpan = document.createElement('span');
+    esnSpan.className = 'c-esn1';
+    appendHighlightedText(esnSpan, r.esn || '—', q);
+    esnCell.appendChild(esnSpan);
+    if (r.esn2) {
+      const esn2Span = document.createElement('span');
+      esn2Span.className = 'c-esn2';
+      appendHighlightedText(esn2Span, r.esn2, q);
+      esnCell.appendChild(esn2Span);
+    }
+    tr.appendChild(esnCell);
+
+    const sealCell = document.createElement('td');
+    sealCell.className = 'td-seal';
+    const sealSpan = document.createElement('span');
+    sealSpan.className = 'c-seal-val';
+    appendHighlightedText(sealSpan, r.seal || '—', q);
+    sealCell.appendChild(sealSpan);
+    tr.appendChild(sealCell);
+
+    const locCell = document.createElement('td');
+    const locSpan = document.createElement('span');
+    locSpan.className = 'c-loc-val';
+    appendHighlightedText(locSpan, r.loc || '—', q);
+    locCell.appendChild(locSpan);
+    tr.appendChild(locCell);
+
+    const sizeCell = document.createElement('td');
+    if (r.size) {
+      const sizeSpan = document.createElement('span');
+      sizeSpan.className = 'sizetag';
+      sizeSpan.textContent = String(r.size);
+      sizeCell.appendChild(sizeSpan);
+    }
+    tr.appendChild(sizeCell);
+    tbody.appendChild(tr);
+  });
 
   /* stats */
   const total = rows.length, done = rows.filter(r => r.done).length;
-  const pct = total ? Math.round(done/total*100) : 0;
-  document.getElementById('s-done').textContent  = done;
+  const remaining = total - done;
+  document.getElementById('s-done').textContent = done;
+  document.getElementById('s-remaining').textContent = remaining;
   document.getElementById('s-total').textContent = total;
-  document.getElementById('prog-bar').style.width = pct + '%';
-  document.getElementById('pct').textContent = pct + '%';
 
   /* scroll to first match */
   if (q && vis.length) {
@@ -861,7 +1010,7 @@ function doReset() {
   closeReset();
   rows = rows.map(r => ({...r, done:false, marked:false}));
   save(); sbDebouncedUpdate(); lastCh = null;
-  document.getElementById('tbody').innerHTML = '';
+  document.getElementById('tbody').replaceChildren();
   render();
   toast('↺ 已重置，可重新開始對單', 'warn');
 }
@@ -1001,13 +1150,29 @@ const FIELDS = [
 ];
 
 function buildMap() {
-  document.getElementById('cmap-body').innerHTML = FIELDS.map(f => {
+  const tbody = document.getElementById('cmap-body');
+  tbody.replaceChildren();
+  FIELDS.forEach(f => {
     const auto = xlsH.find(h => f.hints.some(ht => h.toLowerCase().includes(ht.toLowerCase()))) || '';
-    const opts = ['（略過）', ...xlsH].map(h =>
-      `<option value="${h}"${h === auto ? ' selected' : ''}>${h}</option>`
-    ).join('');
-    return `<tr><td>${f.label}</td><td><select id="mp-${f.key}">${opts}</select></td></tr>`;
-  }).join('');
+    const tr = document.createElement('tr');
+    const labelCell = document.createElement('td');
+    labelCell.textContent = f.label;
+    tr.appendChild(labelCell);
+
+    const selectCell = document.createElement('td');
+    const select = document.createElement('select');
+    select.id = `mp-${f.key}`;
+    ['（略過）', ...xlsH].forEach(header => {
+      const option = document.createElement('option');
+      option.value = header;
+      option.textContent = header;
+      if (header === auto) option.selected = true;
+      select.appendChild(option);
+    });
+    selectCell.appendChild(select);
+    tr.appendChild(selectCell);
+    tbody.appendChild(tr);
+  });
   document.getElementById('cmap-wrap').style.display = 'block';
   document.getElementById('i-ok').disabled = false;
 }
