@@ -155,8 +155,13 @@
     if (String(newPassword || '').length < 8) throw new Error('新密碼至少需要 8 個字元');
     const current = readSession();
     if (!current) throw new Error('登入狀態已失效，請重新登入');
-    const verified = await login(current.username, oldPassword);
-    if (verified.userId !== current.userId) throw new Error('目前密碼輸入錯誤');
+    let verified;
+    try {
+      verified = await login(current.username, oldPassword);
+    } catch (_) {
+      throw new Error('目前密碼不正確，請重新輸入');
+    }
+    if (verified.userId !== current.userId) throw new Error('目前登入帳號不一致，請重新登入');
     const s = readSession();
     const r = await nativeFetch(URL + '/auth/v1/user', {
       method: 'PUT', headers: { apikey: KEY, Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' },
